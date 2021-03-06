@@ -1,0 +1,7 @@
+_*
+groom
+groom-*
+*.zip
+debian/groom*deb*
+debian/groom*var*
+debian/files

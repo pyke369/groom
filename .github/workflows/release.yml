@@ -1,0 +1,61 @@
+name: release
+
+on:
+  push:
+    tags:
+    - '**'
+    - '!master'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout source code
+        uses: actions/checkout@v2
+
+      - name: setup go version
+        uses: actions/setup-go@v2
+        with:
+          go-version: '^1.15'
+
+      - name: install required packages
+        run: sudo apt-get install devscripts debhelper dh-exec
+
+      - name: build project
+        run: make deb && make portable
+
+      - name: create new release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: get short tagname
+        id: stag
+        run: echo ::set-output name=stag::${GITHUB_REF#refs/*/}
+
+      - name: publish debian package
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ../groom_${{ steps.stag.outputs.stag }}_amd64.deb
+          asset_name: groom_${{ steps.stag.outputs.stag }}_amd64.deb
+          asset_content_type: application/x-debian-package
+
+      - name: publish portable binaries archive
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./groom.zip
+          asset_name: groom_${{ steps.stag.outputs.stag }}.zip
+          asset_content_type: application/zip

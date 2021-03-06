@@ -1,0 +1,11 @@
+Source: groom
+Section: net
+Priority: optional
+Maintainer:  Pierre-Yves Kerembellec <py.kerembellec@gmail.com>
+Build-Depends: debhelper (>= 5), dh-exec
+Standards-Version: 3.7.2
+
+Package: groom
+Architecture: any
+Description: HTTPS reverse-proxy designed to expose private endpoints publically in a secure way
+

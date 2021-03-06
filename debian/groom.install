@@ -1,0 +1,6 @@
+#!/usr/bin/dh-exec
+groom usr/bin/
+conf/server.conf => etc/groom/groom.conf
+conf/server/www.domain.com etc/groom/domains/
+conf/key.pem => etc/groom
+conf/cert.pem => etc/groom

@@ -1,0 +1,14 @@
+[Unit]
+Description=groom
+After=network.target
+
+[Service]
+StandardOutput=null
+StandardError=journal
+LimitNOFILE=65536
+ExecStart=/usr/bin/groom /etc/groom/groom.conf
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
