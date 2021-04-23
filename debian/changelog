@@ -1,3 +1,9 @@
+groom (1.0.6) stable; urgency=medium
+
+  * log clients auth (if any) and finish documentation
+
+ -- Pierre-Yves Kerembellec <py.kerembellec@gmail.com>  Sat, 24 Apr 2021 14:01:59 +0200
+
 groom (1.0.5) stable; urgency=medium
 
   * initial public release

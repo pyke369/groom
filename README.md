@@ -1,7 +1,5 @@
 ![groom](https://github.com/pyke369/groom/blob/master/groom.png?raw=true)
 
-(this documentation is still a work-in-progress, but the code has been used and battle-tested for the last 2 years)
-
 
 # Presentation
 `groom` is a self-hosted HTTPS reverse-proxy written in Go, used to expose local private services to the public internet over secure
@@ -45,7 +43,7 @@ remotely.
 
 - @IP-ranges, credentials and time-ranges clients filtering.
 
-- extensive structured logging (on console, and in auto-rotating files and syslog) for both system events and clients requests.
+- extensive structured logging (on standard-output/error, but also in auto-rotating files and syslog) for both system activity events and clients requests.
 
 
 # Architecture
@@ -260,18 +258,18 @@ $ systemctl status groom
 
 
 # Configuration
-`groom` relies on "JSON-syntax-alike" text files for its configuration, and each file must contain a top-level `groom` section to be
-properly parsed, i.e. all configuration files must be in the following form:
+`groom` relies on "JSON-alike" text files for its configuration, and each file must contain a top-level `groom` section to be properly
+parsed, i.e. all configuration files must be in the following form:
 ```
 groom
 {
    // directives...
 }
 ```
-The #, // and /* */ may be used for commenting or disabling some parts of the configuration. Most of the configuration files directives
-have sensible defaults - suitable for a production environment - and should not be changed unless instructed to. As mentionned in the
-presentation, domains configuration files changes (in server or agent mode) are automatically detected and there's no need to restart
-the `groom` instances
+The `#`, `//` and `/* */` constructs may be used for commenting or disabling parts of the configuration. Most of the configuration
+files directives have sensible defaults - suitable for a production environment - and should probably not be changed unless instructed
+to.  As mentionned in the presentation, domains configuration files changes (in server or agent mode) are automatically detected and
+there's no need to restart the `groom` instances (the same mechanism also applies to TLS certificates rotation in server mode).
 
 
 ## Server main configuration
@@ -281,196 +279,286 @@ described below:
 
 - **`mode`** (no default)
 
-  must be `server` to run `groom` in server mode.
+  explicitely set to `server` to run `groom` in server mode.
 
 - **`log`** (default **`console(output=stdout)`**)
 
-  TODO
+  system activity structured log configuration (see the example below for syntax details).
 
 - **`access_log`** (no default)
 
-  TODO
+  clients requests structured log configuration (see the example below for syntax details).
 
 - **`listen`** (no default)
 
-  TODO
+  listening addresses to accept clients (and agents) requests on; any number of addresses (+ associated TLS cert/key pairs)
+  may be specified; a special syntax is used to reference TLS certificates in SNI mode (see the example below).
 
-- **`headers_size`** (default **`64kB`**)
+  a typical multi-domains/multi-tenants setup is obtained by using a wildcard TLS certificate associated with a wildcard DNS
+  entry for the corresponding top domain: for instance, having a TLS certificate and an A DNS record for `*.dev.domain.com`
+  will allow for auto-domains activation by just dropping sub-domain configuration files (like `fred.dev.domain.com`,
+  `alice.dev.domain.com`, etc.) in the appropriate folder (see the `domains` directive below).
 
-  TODO
+- **`headers_size`** (default **`64kB`**, valid value from **`1kB`** to **`1MB`**)
 
-- **`idle_timeout`** (default **`15s`**)
+  maximum authorized size of clients requests HTTP headers.
 
-  TODO
+- **`idle_timeout`** (default **`15s`**, valid value from **`5s`** to **`60s`**)
 
-- **`read_timeout`** (default **`10s`**)
+  maximum time before actively closing idle clients connections.
 
-  TODO
+- **`read_timeout`** (default **`10s`**, valid value from **`5s`** to **`60s`**)
 
-- **`write_timeout`** (default **`20s`**)
+  maximum time spent reading clients requests headers (extended to **`60s`** for the body for POST/PUT requests).
 
-  TODO
+- **`write_timeout`** (default **`20s`**, valid value from **`5s`** to **`60s`**)
 
-- **`body_size`** (default **`8MB`**)
+  maximum time spent sending tunneled responses to clients.
 
-  TODO
+- **`body_size`** (default **`8MB`**, valid value from **`64kB`** to **`1GB`**)
+
+  maximum body size for POST/PUT clients requests.
 
 - **`service`** (default **`/.well-known/groom-agent`**)
 
-  TODO
+  URL path used by agents to connect domains (should not be changed unless you plan to chain `groom` instances).
 
 - **`domains`** (default **`/etc/groom/domains`**)
 
-  TODO
+  folder containing the `domain` configuration files (see next documentation section).
 
 
-Commented example of a server main configuration file:
+Below is a commented example of a server main configuration file:
 ```
 groom
 {
-    mode   = server
-    log    = "file(path=) syslog()"
-    listen = [ "*:443,/etc/groom/cert.pem,/etc/groom/key.pem"" ]
-}
+    // mandatory directive to run groom in server mode
+    mode = server
 
+    // log all system activity messages into an auto-rotating file, and also into syslog for good measure
+    log = "file(path=/var/log/groom/public1-%Y%m%d.log) syslog(facility=local4,name=public1)"
+
+    // log all clients requests into an auto-rotating file
+    access_log = "file(path=/var/log/groom/public1-clients-%Y%m%d.log,time=no,severity=no)"
+
+    // - listen privately on the default HTTPS port (TCP 443), using a dummy self-signed certificate
+    // - also listen publically on the same port, using an array of certificates (selected by regexes on SNI)
+    listen
+    [
+        "10.11.12.13:443,/etc/groom/cert.pem,/etc/groom/key.pem"
+        "4.3.2.1:443,groom.certificates" // <-- path to certificates array in this configuration file
+    ]
+    certificates
+    [
+        "^.dev\\.domain\\.com$ /etc/certs/wildcard-dev-domain-com-cert.pem /etc/certs/wildcard-dev-domain-com-key.pem"
+        "^api\\.domain2\\.com$ /usr/share/certs/api-domain2-com-cert.pem /usr/share/certs/api-domain2-com-key.pem""
+        "* /etc/groom/cert.pem /etc/groom/key.pem" // <-- dummy certificate fallback, probably won't work as expected
+    ]
+
+    // the rest is left with default values
+}
 ```
 
 
 ## Server domain configuration
-TODO
+Server domain configuration files placed in the appropriate folder (and named after the FQDN of the corresponding domains) will
+allow agents to expose their private endpoints by securely back-connecting to this `groom` server instance. The available configuration
+directives are described below:
 
 - **`active`** (default **`false`**)
 
-  TODO
+  whether this domain is active or not (explicitely set to **`true`** to authorize agent connections).
 
 - **`secret`** (no default)
 
-  TODO
+  the agent authentication shared secret for this domain (non-empty to authorize agent connections).
 
-- **`concurrency`** (default **`20`**)
+- **`concurrency`** (default **`20`**, valid value from **`3`** to **`100`**)
 
-  TODO
-
-- **`networks`** (no default)
-
-  TODO
-
-clients sub-section
+  the maximum number of concurrent clients requests for this domain; extra clients requests will yield 429
+  (Too Many Requests) responses.
 
 - **`networks`** (no default)
 
-  TODO
+  the list of networks (@IP blocks in CIDR format) agents are authorized to connect from for this domain.
+
+The following directives used in the `clients` sub-section control clients accesses more granularily (see example below):
+
+- **`networks`** (no default)
+
+  the list of networks (@IP blocks in CIDR format) clients are authorized to issue requests from for this domain.
 
 - **`ranges`** (no default)
 
-  TODO
+  the list of time-ranges clients are authorized to issue requests within for this domain (hours are in UTC).
 
 - **`credentials`** (no default)
 
-  TODO
+  the list of credentials (login:password pairs) clients need to provide to issue requests to this domain.
 
 - **`banner`** (default **`groom`**)
 
-  TODO
+  the message displayed to the user when prompted for credentials (i.e. if the list above is not empty).
 
-Commented example of a server domain configuration file:
+Below is a commented example of a server domain configuration file (in `/etc/groom/domains/www.domain.com`):
 ```
 groom
 {
+    // mandatory directive to activate this domain
+    active = true
+
+    // shared secret with the agent
+    secret = "super-secret"
+
+    // agent connections are authorized from these @IP blocks only
+    networks = [ "190.27.3.0/24", "4.3.62.0/18" ]
+
+    clients
+    {
+        // clients requests are authorized from these @IP blocks only (from anywhere if empty)
+        networks = [ "174.17.24.0/24", "4.3.2.1/32" ]
+
+        // clients requests are accepted within these time-ranges (anytime if empty)
+        ranges = [ "2019-10-01-2019-10-31 tue-fri 08:00-19:00", "2020-01-01 sat- 13:00-17:00" ]
+
+        // clients are prompted for one of the following credentials (no prompt if empty)
+        credentials = [ "user1:password1", "user2:password2" ]
+
+        // the following message is used in the credentials prompt above
+        banner = "www.domain.com realm"
+    }
 }
 
 ```
 
 
 ## Agent main configuration
-`groom` will start in aget mode if its main configuration file contains a `mode = agent` directive. The main configuration file path
+`groom` will start in agent mode if its main configuration file contains a `mode = agent` directive. The main configuration file path
 must be specified as the only command-line argument when invoking the `groom` binary. The other directives available in agent mode are
 described below:
 
 - **`mode`** (no default)
 
-  must be `agent` to run `groom` in agent mode.
+  `agent` to run `groom` in agent mode.
 
 - **`log`** (default **`console(output=stdout)`**)
 
-  TODO
+  system activity structured log configuration (see the example below for syntax details).
 
-- **`connect_timeout`** (default **`5s`**)
+- **`connect_timeout`** (default **`5s`**, valid value from **`5s`** to **`60s`**)
 
-  TODO
+  maximum time spent connecting to local backends.
 
-- **`read_timeout`** (default **`10s`**)
+- **`read_timeout`** (default **`10s`**, valid value from **`5s`** to **`60s`**)
 
-  TODO
+  maximum time spent reading tunneled clients requests headers (extended to **`60s`** for the body of POST/PUT requests).
 
-- **`write_timeout`** (default **`20s`**)
+- **`write_timeout`** (default **`20s`**, valid value from **`5s`** to **`60s`**)
 
-  TODO
+  maximum time spent sending local backends responses to clients.
 
 - **`domains`** (default **`/etc/groom/domains`**)
 
-  TODO
+  folder containing the `domain` configuration files (see next documentation section).
 
-Commented example of an agent main configuration file:
+Below is a commented example of an agent main configuration file:
 ```
 groom
 {
-}
+    // mandatory directive to run groom in agent mode
+    mode = "agent"
 
+    // log system activity messages into a file (in addition to program standard-error)
+    log = "file(path=agent.log) console()"
+
+    // the rest is left with default values
+}
 ```
 
 
 ## Agent domain configuration
-TODO
+Agent domain configuration files placed in the appropriate folder (and named after the FQDN of the corresponding domains) will
+instruct agents to try back-connecting to the corresponding `groom` server instance. The available configuration directives are
+described below:
 
 - **`active`** (default **`false`**)
 
-  TODO
+  whether this domain is active or not (explicitely set to true to have the agent proactively attempt connections).
 
 - **`secret`** (no default)
 
-  TODO
+  the agent authentication shared secret for this domain (non-empty and matching the server's to successfully connect).
 
-- **`concurrency`** (default **`20`**)
+- **`concurrency`** (default **`20`**, valid value from **`3`** to **`100`**)
 
-  TODO
+  the maximum number of concurrent tunneled clients requests for this domain; extra clients requests will yield 502
+  (Bad Gateway) responses.
 
-- **`remote`** (default **`<filename>:443`**)
+- **`remote`** (default **`<domain configuration file name>:443`**)
 
-  TODO
+  if the `groom` server is not listening on HTTPS default TCP port (443) or is not configured to accept agents connections
+  to the default FQDN, you may used this directive to specify a different connection address and/or port.
 
 - **`service`** (default **`/.well-known/groom-agent`**)
 
-  TODO
+  URL path used by agents to connect domains (should not be changed unless you plan to chain `groom` instances).
 
 - **`insecure`** (default **`false`**)
 
-  TODO
+  allow agent connection even if the server TLS certificate is invalid (or self-signed). !!!USE WITH CAUTION!!!
 
-(`targets` sub-section)
+The following directives used in the `targets` sub-section control the agent local requests routing (see example below):
 
 - **`active`** (no default)
 
-  TODO
+  an ordered list of backends/targets names used to forward tunneled requests to local services. the fist matching target
+  wins (see the by-method/by-path filtering techniques below).
 
-(`<target>` sub-section)
+A configuration sub-section named after each target referenced in the `active` list above must be declared next, with at
+least the `target` directive (if no filtering/routing is needed):
 
 - **`method`** (no default)
 
-  TODO
+  a regular-expression-based filter on tunneled requests methods (matches all requests if empty, see example below).
 
 - **`path`** (no default)
 
-  TODO
+  a regular-expression-based filter on tunneled requests paths (matches all requests if empty, see example below).
 
 - **`target`** (no default)
 
-  TODO
+  the URL of the local services (only the scheme, host and port parts are considered, see example below).
 
-Commented example of an agent domain configuration file:
+Below is a commented example of an agent domain configuration file (in `/etc/groom/domains/www.domain.com`):
 ```
 groom
 {
+    // explicitely set to activate this domain
+    active = true
+
+    // shared secret with the server
+    secret = "super-secret"
+
+    // local routing section
+    targets
+    {
+        // ordered list of routes to local backends, declared below
+        active = [ static, default ]
+
+        // retrieval of static content from this endpoint
+        static
+        {
+            method = "^(OPTIONS|HEAD|GET)$"
+            path   = "^/static/.+$"
+            target = "https://localhost:8443/"
+        }
+
+        // all other requests directed to this endpoint
+        default
+        {
+            target = "http://localhost:8000/"
+        }
+    }
 }
 ```
 
@@ -481,10 +569,10 @@ Here are some features that could make it in `groom` if there was some interest 
 - requests/responses recording mechanism on the agent side, allowing to introspect and replay any traffic through a simple web interface.
 
 - mTLS agents authentication (instead of just secrets), using an automated internal PKI (the distribution of the generated agents
-key/certificate pairs would be left to the implentation).
+key/certificate pairs is left to the system administrator).
 
-- mTLS clients authentication (in addition to basic auth credential) using an automated internal PKI (the distribution of the generated
-clients key/certificate pairs would be left to the implementation).
+- mTLS clients authentication (in addition to basic-auth credentials) using an automated internal PKI (the distribution of the generated
+clients key/certificate pairs is left to the system administrator).
 
 - SSO clients authentication through integration with popular IdP such as Google or Okta.
 

@@ -134,7 +134,7 @@ func server_agent(response http.ResponseWriter, request *http.Request) {
 	})
 }
 
-func server_log(start time.Time, reason, domain, id string, request *http.Request, status, in, out int) {
+func server_log(start time.Time, reason, domain, auth, id string, request *http.Request, status, in, out int) {
 	info := map[string]interface{}{
 		"start":    start.UnixNano() / 1000000,
 		"domain":   domain,
@@ -148,6 +148,9 @@ func server_log(start time.Time, reason, domain, id string, request *http.Reques
 	}
 	if reason != "" {
 		info["reason"] = reason
+	}
+	if auth != "" {
+		info["auth"] = auth
 	}
 	path := request.URL.Path
 	if value := strings.TrimSpace(request.URL.RawQuery); value != "" {
@@ -171,6 +174,11 @@ func server_log(start time.Time, reason, domain, id string, request *http.Reques
 }
 
 func server_request(response http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodConnect || request.Method == http.MethodTrace {
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	name, port, err := net.SplitHostPort(request.Host)
 	if err != nil {
 		name, port = request.Host, "443"
@@ -183,19 +191,19 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("X-Request-Id", id)
 	if domain == nil || !domain.IsConnected() {
 		response.WriteHeader(http.StatusNotFound)
-		server_log(start, "disconnected domain", name, id, request, http.StatusNotFound, in, out)
+		server_log(start, "disconnected domain", name, "", id, request, http.StatusNotFound, in, out)
 		return
 	}
 
 	if request.Method == http.MethodPost || request.Method == http.MethodPut {
 		if request.ContentLength < 0 {
 			response.WriteHeader(http.StatusLengthRequired)
-			server_log(start, "missing content length", name, id, request, http.StatusLengthRequired, in, out)
+			server_log(start, "missing content length", name, "", id, request, http.StatusLengthRequired, in, out)
 			return
 		}
 		if request.ContentLength >= config.GetSizeBounds(progname+".body_size", 8<<20, 64<<10, 1<<30) {
 			response.WriteHeader(http.StatusRequestEntityTooLarge)
-			server_log(start, "request too large", name, id, request, http.StatusRequestEntityTooLarge, int(request.ContentLength), out)
+			server_log(start, "request too large", name, id, "", request, http.StatusRequestEntityTooLarge, int(request.ContentLength), out)
 			return
 		}
 	}
@@ -211,7 +219,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 		}
 		if !matched {
 			response.WriteHeader(http.StatusNotFound)
-			server_log(start, "unauthorized network", name, id, request, http.StatusForbidden, in, out)
+			server_log(start, "unauthorized network", name, "", id, request, http.StatusForbidden, in, out)
 			return
 		}
 	}
@@ -233,11 +241,12 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 		}
 		if !matched {
 			response.WriteHeader(http.StatusNotFound)
-			server_log(start, "unauthorized timerange", name, id, request, http.StatusForbidden, in, out)
+			server_log(start, "unauthorized timerange", name, "", id, request, http.StatusForbidden, in, out)
 			return
 		}
 	}
 
+	sauth := ""
 	if len(domain.Credentials) != 0 {
 		cookie, auth, cname := "", "", "_"+progname
 		if value, err := request.Cookie(cname); err == nil {
@@ -264,6 +273,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 			response.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		sauth = fmt.Sprintf("credentials:%s", strings.Split(auth, ":")[0])
 		if matched == "auth" {
 			http.SetCookie(response, &http.Cookie{Name: cname, Value: base64.StdEncoding.EncodeToString([]byte(auth)), Path: "/", MaxAge: 1200})
 			request.Header.Del("Authorization")
@@ -330,7 +340,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 			if errored != nil {
 				stream.Shutdown(true, true)
 				response.WriteHeader(http.StatusBadGateway)
-				server_log(start, fmt.Sprintf("%v", errored), name, id, request, http.StatusBadGateway, in, out)
+				server_log(start, fmt.Sprintf("%v", errored), name, sauth, id, request, http.StatusBadGateway, in, out)
 			} else {
 				upgraded, timeout, status := false, uconfig.Duration(config.GetDurationBounds(progname+".write_timeout", 20, 5, 60)), 0
 				for {
@@ -367,11 +377,11 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 						response.WriteHeader(aresponse.StatusCode)
 						aresponse.Body.Close()
 						if frame.Flags&FLAG_END != 0 {
-							server_log(start, "", name, id, request, status, in, out)
+							server_log(start, "", name, sauth, id, request, status, in, out)
 							break
 						}
 						if upgraded {
-							server_log(start, "raw session start", name, id, request, status, in, out)
+							server_log(start, "raw session startup", name, sauth, id, request, status, in, out)
 							break
 						}
 					}
@@ -390,7 +400,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 							}
 						}
 						if frame.Flags&FLAG_END != 0 {
-							server_log(start, "", name, id, request, status, in, out)
+							server_log(start, "", name, sauth, id, request, status, in, out)
 							break
 						}
 					}
@@ -441,18 +451,18 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 							}
 						}
 						client.Close()
-						server_log(start, "raw session end", name, id, request, 0, in, out)
+						server_log(start, "raw session teardown", sauth, name, id, request, 0, in, out)
 					}
 				}
 			}
 			bslab.Put(data)
 		} else {
 			response.WriteHeader(http.StatusBadRequest)
-			server_log(start, "", name, id, request, http.StatusBadRequest, in, out)
+			server_log(start, "", sauth, name, id, request, http.StatusBadRequest, in, out)
 		}
 		stream.Shutdown(false, true)
 	} else {
 		response.WriteHeader(http.StatusTooManyRequests)
-		server_log(start, "", name, id, request, http.StatusTooManyRequests, in, out)
+		server_log(start, "", name, sauth, id, request, http.StatusTooManyRequests, in, out)
 	}
 }
