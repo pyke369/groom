@@ -1,3 +1,9 @@
+groom (1.0.7) stable; urgency=medium
+
+  * include ulog library facilities definition fix
+
+ -- Pierre-Yves Kerembellec <py.kerembellec@gmail.com>  Mon, 03 May 2021 12:49:28 +0200
+
 groom (1.0.6) stable; urgency=medium
 
   * log clients auth (if any) and finish documentation
