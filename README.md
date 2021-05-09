@@ -13,8 +13,7 @@ The same `groom` binary can run in 2 different modes (depending on the `mode` co
 - `server`: central instance receiving external clients requests, managing TLS termination and waiting for agents to connect
 to map their exported private services under "domains".
 
-- `agent`: distributed instances connecting to a central instance (`server` above) to make their private services accessible
-remotely.
+- `agent`: distributed instances connecting to a central instance (`server` above) to make their private services accessible remotely.
 
 `groom` is ideally suited for the following scenarii, when a pervasise communication system is most needed:
 
@@ -98,10 +97,6 @@ Example:
 ```
 $ git clone https://github.com/pyke369/groom
 Cloning into 'groom'...
-remote: Enumerating objects: 39, done.
-remote: Counting objects: 100% (39/39), done.
-remote: Compressing objects: 100% (32/32), done.
-remote: Total 39 (delta 1), reused 38 (delta 0), pack-reused 0
 Receiving objects: 100% (39/39), 196.02 KiB | 225.00 KiB/s, done.
 Resolving deltas: 100% (1/1), done.
 
@@ -281,14 +276,6 @@ described below:
 
   explicitely set to `server` to run `groom` in server mode.
 
-- **`log`** (default **`console(output=stdout)`**)
-
-  system activity structured log configuration (see the example below for syntax details).
-
-- **`access_log`** (no default)
-
-  clients requests structured log configuration (see the example below for syntax details).
-
 - **`listen`** (no default)
 
   listening addresses to accept clients (and agents) requests on; any number of addresses (+ associated TLS cert/key pairs)
@@ -327,6 +314,29 @@ described below:
 
   folder containing the `domain` configuration files (see next documentation section).
 
+- **`unavailable`** (default **`404`**)
+
+  the default HTTP status code to use when a domain is not accessible (either because it's not connected to any agent or because
+  the client does not match the proper access conditions).
+
+- **`transaction`** (default **`true`**)
+
+  whether to return the request transaction id to the client (in the X-Transaction-Id response header) or not.
+
+The following directives used in the `log` sub-section control the server logging (see example below):
+
+- **`system`** (default **`console(output=stdout)`**)
+
+  system activity structured log configuration (see the example below for syntax details).
+
+- **`access`** (no default)
+
+  clients requests structured log configuration (see the example below for syntax details).
+
+- **`disconnected`** ((default **`false`**)
+
+  clients requests to disconnected or inactive domains will not be loggued in the access log above, unless this directive is
+  set to **`true`** (it can get very verbose, especially when using a widlcard DNS entry (see below)).
 
 Below is a commented example of a server main configuration file:
 ```
@@ -335,11 +345,14 @@ groom
     // mandatory directive to run groom in server mode
     mode = server
 
-    // log all system activity messages into an auto-rotating file, and also into syslog for good measure
-    log = "file(path=/var/log/groom/public1-%Y%m%d.log) syslog(facility=local4,name=public1)"
+    log
+    {
+        // log all system activity messages into an auto-rotating file, and also into syslog for good measure
+        system = "file(path=/var/log/groom/public1-%Y%m%d.log) syslog(facility=local4,name=public1)"
 
-    // log all clients requests into an auto-rotating file
-    access_log = "file(path=/var/log/groom/public1-clients-%Y%m%d.log,time=no,severity=no)"
+        // log all clients requests into an auto-rotating file
+        access = "file(path=/var/log/groom/public1-clients-%Y%m%d.log,time=no,severity=no)"
+    }
 
     // - listen privately on the default HTTPS port (TCP 443), using a dummy self-signed certificate
     // - also listen publically on the same port, using an array of certificates (selected by regexes on SNI)
@@ -362,8 +375,8 @@ groom
 
 ## Server domain configuration
 Server domain configuration files placed in the appropriate folder (and named after the FQDN of the corresponding domains) will
-allow agents to expose their private endpoints by securely back-connecting to this `groom` server instance. The available configuration
-directives are described below:
+allow agents to expose their private endpoints by securely back-connecting to this `groom` server instance. The available
+configuration directives are described below:
 
 - **`active`** (default **`false`**)
 
@@ -371,12 +384,24 @@ directives are described below:
 
 - **`secret`** (no default)
 
-  the agent authentication shared secret for this domain (non-empty to authorize agent connections).
+  the agent authentication shared secret for this domain (non-empty to authorize agent connections). use hard-to-guess
+  random strings for this (the output of `openssl rand -base64 48` or similar is deemed accaptable) and send it to the
+  `groom` agent operator through a secure channel.
 
 - **`concurrency`** (default **`20`**, valid value from **`3`** to **`100`**)
 
-  the maximum number of concurrent clients requests for this domain; extra clients requests will yield 429
-  (Too Many Requests) responses.
+  the maximum number of concurrent clients requests for this domain; extra clients requests will yield 429 (Too Many Requests)
+  responses.
+
+- **`body_size`** (default **`8MB`**, valid value from **`64kB`** to **`1GB`**)
+
+  maximum body size for POST/PUT clients requests. supersedes the corresponding global value from the server main configuration
+  file if set at domain level.
+
+- **`transaction`** (default **`true`**)
+
+  whether to return the request transaction id to the client (in the X-Transaction-Id response header) or not. supersedes the
+  corresponding global value from the server main configuration file if set at domain level.
 
 - **`networks`** (no default)
 
@@ -441,10 +466,6 @@ described below:
 
   `agent` to run `groom` in agent mode.
 
-- **`log`** (default **`console(output=stdout)`**)
-
-  system activity structured log configuration (see the example below for syntax details).
-
 - **`connect_timeout`** (default **`5s`**, valid value from **`5s`** to **`60s`**)
 
   maximum time spent connecting to local backends.
@@ -461,6 +482,12 @@ described below:
 
   folder containing the `domain` configuration files (see next documentation section).
 
+The following directive used in the `log` sub-section controls the agent logging (see example below):
+
+- **`system`** (default **`console(output=stdout)`**)
+
+  system activity structured log configuration (see the example below for syntax details).
+
 Below is a commented example of an agent main configuration file:
 ```
 groom
@@ -469,7 +496,10 @@ groom
     mode = "agent"
 
     // log system activity messages into a file (in addition to program standard-error)
-    log = "file(path=agent.log) console()"
+    log
+    {
+        system = "file(path=agent.log) console()"
+    }
 
     // the rest is left with default values
 }
@@ -505,7 +535,8 @@ described below:
 
 - **`insecure`** (default **`false`**)
 
-  allow agent connection even if the server TLS certificate is invalid (or self-signed). !!!USE WITH CAUTION!!!
+  allow agent connection even if the server TLS certificate is invalid (or self-signed). ignoring server certificate validity
+  is a major security risk as it allows MITM attacks and agent <-> server secret stealing. /!\ USE WITH CAUTION /!\
 
 The following directives used in the `targets` sub-section control the agent local requests routing (see example below):
 
@@ -524,6 +555,12 @@ least the `target` directive (if no filtering/routing is needed):
 - **`path`** (no default)
 
   a regular-expression-based filter on tunneled requests paths (matches all requests if empty, see example below).
+
+- **`host`** (default **`target`**)
+
+  the Host header sent to local services in backend requests is the target host[:port] by default: if you use **`remote`**
+  or **`forwarded`**, this header will contain the X-Forwarded-Host[:X-Forwarded-Port] value instead. you may also specify
+  any arbitrary value that will then be passed as-is to the local service for vhost selection.
 
 - **`target`** (no default)
 

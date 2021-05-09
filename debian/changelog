@@ -1,3 +1,15 @@
+groom (1.1.0) stable; urgency=medium
+
+  * add configuration-reload-on-SIGHUP support
+  * make the domain's unavailability HTTP status code configurable (404 by default)
+  * do not return transaction ids to clients until requests are forwarded to agents
+  * do not log clients requests for disconnected or inactive domains by default
+  * use target hostname as Host header in backend requests by default
+  * add per-domain configurable POST/PUT body size limit
+  * add an option to disable returning the X-Transaction-Id header to clients
+
+ -- Pierre-Yves Kerembellec <py.kerembellec@gmail.com>  Sun, 09 May 2021 19:50:53 +0200
+
 groom (1.0.7) stable; urgency=medium
 
   * include ulog library facilities definition fix

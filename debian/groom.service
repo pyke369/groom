@@ -7,6 +7,7 @@ StandardOutput=null
 StandardError=journal
 LimitNOFILE=65536
 ExecStart=/usr/bin/groom /etc/groom/groom.conf
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3
 

@@ -24,6 +24,7 @@ type RANGE struct {
 }
 type TARGET struct {
 	Target string
+	Host   string
 	Method *regexp.Regexp
 	Path   *regexp.Regexp
 }
@@ -34,6 +35,8 @@ type DOMAIN struct {
 	Insecure    bool
 	Secret      string
 	Concurrency int
+	Size        int
+	Transaction bool
 	Sources     []*net.IPNet
 	Networks    []*net.IPNet
 	Ranges      []*RANGE
@@ -89,6 +92,8 @@ func (this *DOMAINS) Update() {
 						domain.lock.Unlock()
 						domain.Secret = strings.TrimSpace(dconfig.GetString(progname+".secret", ""))
 						domain.Concurrency = int(dconfig.GetIntegerBounds(progname+".concurrency", 20, 3, 100))
+						domain.Size = int(dconfig.GetSizeBounds(progname+".body_size", config.GetSizeBounds(progname+".body_size", 8<<20, 64<<10, 1<<30), 64<<10, 1<<30))
+						domain.Transaction = dconfig.GetBoolean(progname+".transaction", config.GetBoolean(progname+".transaction", true))
 
 						if mode == "server" {
 							networks := []*net.IPNet{}
@@ -159,6 +164,7 @@ func (this *DOMAINS) Update() {
 								name := dconfig.GetString(path, "")
 								if value := strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".target", "")); value != "" {
 									target := &TARGET{Target: value}
+									target.Host = strings.ToLower(strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".host", "target")))
 									if value := strings.TrimSpace(strings.ToUpper(dconfig.GetString(progname+".targets."+name+".method", ""))); value != "" {
 										if matcher := rcache.Get(value); matcher != nil {
 											target.Method = matcher
@@ -372,13 +378,13 @@ func (this *DOMAIN) Stream(id int, create bool) (stream *STREAM) {
 	return
 }
 
-func (this *DOMAIN) Target(method, path string) (target string) {
+func (this *DOMAIN) Target(method, path string) (target, host string) {
 	this.lock.RLock()
 	for _, value := range this.targets {
 		if (value.Method != nil && !value.Method.MatchString(method)) || (value.Path != nil && !value.Path.MatchString(path)) {
 			continue
 		}
-		target = value.Target
+		target, host = value.Target, value.Host
 		break
 	}
 	this.lock.RUnlock()

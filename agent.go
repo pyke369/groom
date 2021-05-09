@@ -42,7 +42,7 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 				errored = http.StatusBadRequest
 				break
 			}
-			target := domain.Target(request.Method, request.URL.Path)
+			target, host := domain.Target(request.Method, request.URL.Path)
 			if target == "" {
 				errored = http.StatusBadGateway
 				break
@@ -70,6 +70,11 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 			if backend == nil {
 				errored = http.StatusBadGateway
 				break
+			}
+			if host == "target" {
+				request.Host = parts.Host
+			} else if host != "remote" && host != "forwarded" {
+				request.Host = host
 			}
 			headers, err := httputil.DumpRequest(request, false)
 			if err != nil {
@@ -122,7 +127,7 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 					backend.SetReadDeadline(time.Now().Add(timeout))
 					data = data[:cap(data)-4]
 					read, err := response.Body.Read(data)
-					if read > 0 {
+					if read >= 0 {
 						if !head {
 							head = true
 							if stream.Write(flags, headers) != nil {
@@ -130,7 +135,7 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 							}
 						}
 						data, flags = data[:read], FLAG_BODY
-						if err != nil {
+						if read == 0 || err != nil {
 							flags |= FLAG_END
 						}
 						if stream.Write(flags, data) != nil {
@@ -172,9 +177,9 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 						backend.SetReadDeadline(time.Now().Add(timeout))
 						data = data[:cap(data)-4]
 						read, err := backend.Read(data)
-						if read > 0 {
+						if read >= 0 {
 							data, flags = data[:read], FLAG_RAW
-							if err != nil {
+							if read == 0 || err != nil {
 								flags |= FLAG_END
 							}
 							if stream.Write(flags, data) != nil {

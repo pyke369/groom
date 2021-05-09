@@ -13,6 +13,7 @@ groom
     //     {
     //         method = ""
     //         path   = ""
+    //         host   = "target"
     //         target = "http(s)://..."
     //     }
     // }

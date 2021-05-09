@@ -18,15 +18,11 @@ import (
 	"github.com/pyke369/golang-support/dynacert"
 	"github.com/pyke369/golang-support/rcache"
 	"github.com/pyke369/golang-support/uconfig"
-	"github.com/pyke369/golang-support/ulog"
 	"github.com/pyke369/golang-support/uuid"
 	"github.com/pyke369/golang-support/uws"
 )
 
-var slogger *ulog.ULog
-
 func server_run() {
-	slogger = ulog.New(config.GetString(progname+".access_log", ""))
 	handler := http.NewServeMux()
 	handler.HandleFunc(strings.TrimSpace(config.GetString(progname+".service", "/.well-known/"+progname+"-agent")), server_agent)
 	handler.HandleFunc("/", server_request)
@@ -77,28 +73,28 @@ func server_agent(response http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		name = request.Host
 	}
-	secret := ""
+	secret, unavailable := "", int(config.GetIntegerBounds(progname+".unavailable", http.StatusNotFound, 200, 999))
 	if header := request.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") && len(header) >= 8 {
 		secret = strings.TrimSpace(header[7:])
 	}
 	if secret == "" {
-		response.WriteHeader(http.StatusNotFound)
+		response.WriteHeader(unavailable)
 		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "agent authentication not provided"})
 		return
 	}
 	domain := domains.Get(name)
 	if domain == nil {
-		response.WriteHeader(http.StatusNotFound)
+		response.WriteHeader(unavailable)
 		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "unknown domain"})
 		return
 	}
 	if !domain.IsActive() {
-		response.WriteHeader(http.StatusNotFound)
+		response.WriteHeader(unavailable)
 		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "inactive domain"})
 		return
 	}
 	if domain.Secret == "" || secret != domain.Secret {
-		response.WriteHeader(http.StatusNotFound)
+		response.WriteHeader(unavailable)
 		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "invalid agent authentication"})
 		return
 	}
@@ -112,7 +108,7 @@ func server_agent(response http.ResponseWriter, request *http.Request) {
 			}
 		}
 		if !matched {
-			response.WriteHeader(http.StatusNotFound)
+			response.WriteHeader(unavailable)
 			logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "agent connection from unauthorized network"})
 			return
 		}
@@ -168,9 +164,7 @@ func server_log(start time.Time, reason, domain, auth, id string, request *http.
 			info["range"] = fmt.Sprintf("%s-%s", captures[1], captures[2])
 		}
 	}
-	if slogger != nil {
-		slogger.Info(info)
-	}
+	slogger.Info(info)
 }
 
 func server_request(response http.ResponseWriter, request *http.Request) {
@@ -185,13 +179,15 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 	}
 
 	start, id, in, out, domain := time.Now(), uuid.UUID(), 0, 52, domains.Get(name)
+	unavailable := int(config.GetIntegerBounds(progname+".unavailable", http.StatusNotFound, 200, 999))
 	if headers, err := httputil.DumpRequest(request, false); err == nil {
 		in = len(headers)
 	}
-	response.Header().Set("X-Request-Id", id)
 	if domain == nil || !domain.IsConnected() {
-		response.WriteHeader(http.StatusNotFound)
-		server_log(start, "disconnected domain", name, "", id, request, http.StatusNotFound, in, out)
+		response.WriteHeader(unavailable)
+		if config.GetBoolean(progname+".log.disconnected", false) {
+			server_log(start, "disconnected domain", name, "", id, request, http.StatusNotFound, in, out)
+		}
 		return
 	}
 
@@ -201,7 +197,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 			server_log(start, "missing content length", name, "", id, request, http.StatusLengthRequired, in, out)
 			return
 		}
-		if request.ContentLength >= config.GetSizeBounds(progname+".body_size", 8<<20, 64<<10, 1<<30) {
+		if int(request.ContentLength) >= domain.Size {
 			response.WriteHeader(http.StatusRequestEntityTooLarge)
 			server_log(start, "request too large", name, id, "", request, http.StatusRequestEntityTooLarge, int(request.ContentLength), out)
 			return
@@ -218,7 +214,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 			}
 		}
 		if !matched {
-			response.WriteHeader(http.StatusNotFound)
+			response.WriteHeader(unavailable)
 			server_log(start, "unauthorized network", name, "", id, request, http.StatusForbidden, in, out)
 			return
 		}
@@ -240,7 +236,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 			break
 		}
 		if !matched {
-			response.WriteHeader(http.StatusNotFound)
+			response.WriteHeader(unavailable)
 			server_log(start, "unauthorized timerange", name, "", id, request, http.StatusForbidden, in, out)
 			return
 		}
@@ -297,8 +293,11 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 	request.Header.Set("X-Forwarded-Host", name)
 	request.Header.Set("X-Forwarded-Port", port)
 	request.Header.Set("X-Forwarded-Proto", "https")
-	request.Header.Set("X-Request-Id", id)
+	request.Header.Set("X-Transaction-Id", id)
 	request.Header.Del("Expect")
+	if domain.Transaction {
+		response.Header().Set("X-Transaction-Id", id)
+	}
 
 	if stream := domain.Stream(-1, true); stream != nil {
 		if headers, err := httputil.DumpRequest(request, false); err == nil {
@@ -308,7 +307,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 			for {
 				data = data[:cap(data)-4]
 				read, err := request.Body.Read(data)
-				if read > 0 {
+				if read >= 0 {
 					if !head {
 						head = true
 						if err := stream.Write(FLAG_HEAD|FLAG_START, headers); err != nil {
@@ -319,7 +318,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 					in += read
 					data = data[:read]
 					flags := FLAG_BODY
-					if err != nil {
+					if read == 0 || err != nil {
 						flags |= FLAG_END
 					}
 					if err := stream.Write(flags, data); err != nil {
@@ -434,11 +433,11 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 							client.SetReadDeadline(time.Now().Add(timeout))
 							data = data[:cap(data)-4]
 							read, err := client.Read(data)
-							if read > 0 {
+							if read >= 0 {
 								in += read
 								data = data[:read]
 								flags := FLAG_RAW
-								if err != nil {
+								if read == 0 || err != nil {
 									flags |= FLAG_END
 								}
 								if stream.Write(flags, data) != nil {
