@@ -8,8 +8,8 @@ groom
     // networks    = [ ]
     // clients
     // {
-    //     networks    = [ ]
-    //     ranges      = [ ] 
+    //     networks    = [ ]
+    //     ranges      = [ ]
     //     credentials = [ ]
     //     banner      = "groom"
     // }

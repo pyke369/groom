@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/pyke369/golang-support/bslab"
@@ -76,6 +77,11 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 			} else if host != "remote" && host != "forwarded" {
 				request.Host = host
 			}
+			if strings.ToLower(request.Header.Get("Connection")) != "upgrade" {
+				request.Header.Del("Connection")
+				request.Header.Del("Upgrade")
+			}
+			request.ProtoMinor = 1
 			headers, err := httputil.DumpRequest(request, false)
 			if err != nil {
 				errored = http.StatusBadRequest

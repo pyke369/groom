@@ -68,7 +68,7 @@ func (this *DOMAINS) Update() {
 	if entries, err := ioutil.ReadDir(root); err == nil {
 		for _, info := range entries {
 			name, modified := info.Name(), info.ModTime()
-			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || strings.Contains(name, "dpkg-") {
 				continue
 			}
 			this.lock.Lock()

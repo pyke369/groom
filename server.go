@@ -294,7 +294,6 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 	request.Header.Set("X-Forwarded-Port", port)
 	request.Header.Set("X-Forwarded-Proto", "https")
 	request.Header.Set("X-Transaction-Id", id)
-	request.Header.Del("Expect")
 	if domain.Transaction {
 		response.Header().Set("X-Transaction-Id", id)
 	}
@@ -364,7 +363,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 							upgraded = true
 						}
 						for name, _ := range aresponse.Header {
-							if name != "Set-Cookie" {
+							if name != "Set-Cookie" && name != "Keep-Alive" && (upgraded || name != "Connection") && name != "Transfer-Encoding" {
 								response.Header().Set(name, aresponse.Header.Get(name))
 							}
 						}
