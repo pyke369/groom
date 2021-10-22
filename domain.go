@@ -3,11 +3,9 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,11 +15,6 @@ import (
 	"github.com/pyke369/golang-support/uws"
 )
 
-type RANGE struct {
-	Dates [2]time.Time
-	Days  [2]int
-	Times [2]int
-}
 type TARGET struct {
 	Target string
 	Host   string
@@ -37,9 +30,9 @@ type DOMAIN struct {
 	Concurrency int
 	Size        int
 	Transaction bool
-	Sources     []*net.IPNet
-	Networks    []*net.IPNet
-	Ranges      []*RANGE
+	Sources     []string
+	Networks    []string
+	Ranges      []string
 	Credentials []string
 	Banner      string
 	hash        string
@@ -96,62 +89,28 @@ func (this *DOMAINS) Update() {
 						domain.Transaction = dconfig.GetBoolean(progname+".transaction", config.GetBoolean(progname+".transaction", true))
 
 						if mode == "server" {
-							networks := []*net.IPNet{}
+							domain.Sources, domain.Networks, domain.Ranges, domain.Credentials = []string{}, []string{}, []string{}, []string{}
 							for _, path := range dconfig.GetPaths(progname + ".networks") {
-								if _, entry, err := net.ParseCIDR(strings.TrimSpace(dconfig.GetString(path, ""))); err == nil {
-									networks = append(networks, entry)
+								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+									domain.Sources = append(domain.Sources, value)
 								}
 							}
-							domain.Sources = networks
-
-							networks = []*net.IPNet{}
 							for _, path := range dconfig.GetPaths(progname + ".clients.networks") {
-								if _, entry, err := net.ParseCIDR(strings.TrimSpace(dconfig.GetString(path, ""))); err == nil {
-									networks = append(networks, entry)
+								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+									domain.Networks = append(domain.Networks, value)
 								}
 							}
-							domain.Networks = networks
-							domain.Concurrency = int(dconfig.GetIntegerBounds(progname+".concurrency", 20, 3, 100))
-
-							ranges, matcher1, matcher2, matcher3, days := []*RANGE{},
-								rcache.Get(`^(\d{4}-\d{2}-\d{2})?-(\d{4}-\d{2}-\d{2})?$`),
-								rcache.Get(`^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)?-(Mon|Tue|Wed|Thu|Fri|Sat|Sun)?$`),
-								rcache.Get(`^(?:(\d{2}):(\d{2})(?::(\d{2}))?)?-(?:(\d{2}):(\d{2})(?::(\d{2}))?)?$`),
-								map[string]int{"Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4, "Fri": 5, "Sat": 6, "Sun": 7}
 							for _, path := range dconfig.GetPaths(progname + ".clients.ranges") {
-								entry := &RANGE{}
-								for _, value := range strings.Split(dconfig.GetString(path, ""), " ") {
-									if captures := matcher1.FindStringSubmatch(value); len(captures) == 3 {
-										if value, err := time.Parse("2006-01-02", captures[1]); err == nil {
-											entry.Dates[0] = value
-										}
-										if value, err := time.Parse("2006-01-02", captures[2]); err == nil {
-											entry.Dates[1] = value.Add(86399 * time.Second)
-										}
-									} else if captures := matcher2.FindStringSubmatch(value); len(captures) == 3 {
-										entry.Days[0], entry.Days[1] = days[captures[1]], days[captures[2]]
-									} else if captures := matcher3.FindStringSubmatch(value); len(captures) == 7 {
-										hour, _ := strconv.ParseInt(captures[1], 10, 64)
-										minute, _ := strconv.ParseInt(captures[2], 10, 64)
-										second, _ := strconv.ParseInt(captures[3], 10, 64)
-										entry.Times[0] = int(hour)*3600 + int(minute)*60 + int(second)
-										hour, _ = strconv.ParseInt(captures[4], 10, 64)
-										minute, _ = strconv.ParseInt(captures[5], 10, 64)
-										second, _ = strconv.ParseInt(captures[6], 10, 64)
-										entry.Times[1] = int(hour)*3600 + int(minute)*60 + int(second)
-									}
+								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+									domain.Ranges = append(domain.Ranges, value)
 								}
-								ranges = append(ranges, entry)
 							}
-							domain.Ranges = ranges
-
-							credentials, matcher := []string{}, rcache.Get(`^\s*([^:\s]+)\s*:\s*([^:\s]+)\s*$`)
 							for _, path := range dconfig.GetPaths(progname + ".clients.credentials") {
-								if captures := matcher.FindStringSubmatch(dconfig.GetString(path, "")); len(captures) == 3 {
-									credentials = append(credentials, fmt.Sprintf("%s:%s", captures[1], captures[2]))
+								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+									domain.Credentials = append(domain.Credentials, value)
 								}
 							}
-							domain.Credentials = credentials
+							domain.Concurrency = int(dconfig.GetIntegerBounds(progname+".concurrency", 20, 3, 100))
 							domain.Banner = strings.TrimSpace(dconfig.GetString(progname+".clients.banner", progname))
 						}
 

@@ -134,7 +134,7 @@ $ ls -al groom.zip
 $ make deb
  dpkg-buildpackage -rfakeroot -us -uc -ui -i -b
 dpkg-buildpackage: info: source package groom
-dpkg-buildpackage: info: source version 1.0.5
+dpkg-buildpackage: info: source version 1.2.0
 dpkg-buildpackage: info: source distribution stable
  dpkg-source -i --before-build groom
 dpkg-buildpackage: info: host architecture amd64
@@ -180,22 +180,22 @@ dh_systemd_start --no-start
    dh_gencontrol
    dh_md5sums
    dh_builddeb
-dpkg-deb: building package 'groom' in '../groom_1.0.5_amd64.deb'.
+dpkg-deb: building package 'groom' in '../groom_1.2.0_amd64.deb'.
  dpkg-genbuildinfo --build=binary
- dpkg-genchanges --build=binary >../groom_1.0.5_amd64.changes
+ dpkg-genchanges --build=binary >../groom_1.2.0_amd64.changes
 dpkg-genchanges: info: binary-only upload (no source code included)
  dpkg-source -i --after-build groom
 dpkg-buildpackage: info: binary-only upload (no source included)
 
-$ ls -al ../groom_1.0.5_amd64.deb
--rw-r--r-- 1 nobody nogroup 2268276 Jul 28 17:34 ../groom_1.0.5_amd64.deb
+$ ls -al ../groom_1.2.0_amd64.deb
+-rw-r--r-- 1 nobody nogroup 2268276 Jul 28 17:34 ../groom_1.2.0_amd64.deb
 ```
 
 Once downloaded, you can unzip the universal binary archive anywhere and start using `groom` right-away without installing anything
 beforehand (hence the "portable/universal" qualifier):
 ```
-$ unzip /mnt/hgfs/Downloads/groom_1.0.5.zip
-Archive:  /mnt/hgfs/Downloads/groom_1.0.5.zip
+$ unzip /mnt/hgfs/Downloads/groom_1.2.0.zip
+Archive:  /mnt/hgfs/Downloads/groom_1.2.0.zip
    creating: groom/
   inflating: groom/groom-darwin
   inflating: groom/groom.exe
@@ -212,20 +212,20 @@ Archive:  /mnt/hgfs/Downloads/groom_1.0.5.zip
 $ cd groom
 
 $ ./groom conf/agent.conf
-2019-07-28 18:15:29 INFO {"config":"conf/agent.conf","event":"start","mode":"agent","pid":127857,"version":"1.0.5"}
+2019-07-28 18:15:29 INFO {"config":"conf/agent.conf","event":"start","mode":"agent","pid":127857,"version":"1.2.0"}
 
 PS C:\groom> .\groom .\conf\agent.conf
-2019-07-28 18:42:37 INFO {"config":".\\conf\\agent.conf","event":"start","mode":"agent","pid":6328,"version":"1.0.5"}
+2019-07-28 18:42:37 INFO {"config":".\\conf\\agent.conf","event":"start","mode":"agent","pid":6328,"version":"1.2.0"}
 ```
 We recommend adding the current folder to your PATH environment variable to allow starting `groom` from anywhere.
 
 On a `groom` server instance, you may alternatively deploy the Debian package with the following command:
 ```
-# dpkg -i groom_1.0.5_amd64.deb
+# dpkg -i groom_1.2.0_amd64.deb
 Selecting previously unselected package groom.
-Preparing to unpack groom_1.0.5_amd64.deb ...
-Unpacking groom (1.0.5) ...
-Setting up groom (1.0.5) ...
+Preparing to unpack groom_1.2.0_amd64.deb ...
+Unpacking groom (1.2.0) ...
+Setting up groom (1.2.0) ...
 ```
 
 Note that the `groom` server does not start right away, and that the corresponding systemd service is not enabled by default
@@ -441,10 +441,10 @@ groom
     clients
     {
         // clients requests are authorized from these @IP blocks only (from anywhere if empty)
-        networks = [ "174.17.24.0/24", "4.3.2.1/32" ]
+        networks = [ "174.17.24.0/24", "4.3.2.1/32" ]
 
         // clients requests are accepted within these time-ranges (anytime if empty)
-        ranges = [ "2019-10-01-2019-10-31 tue-fri 08:00-19:00", "2020-01-01 sat- 13:00-17:00" ]
+        ranges = [ "2019-10-01-2019-10-31 tue-fri 08:00-19:00", "2020-01-01 sat- 13:00-17:00" ]
 
         // clients are prompted for one of the following credentials (no prompt if empty)
         credentials = [ "user1:password1", "user2:password2" ]

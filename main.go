@@ -1,35 +1,73 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
+	"github.com/pyke369/golang-support/acl"
 	"github.com/pyke369/golang-support/uconfig"
 	"github.com/pyke369/golang-support/ulog"
+	"github.com/pyke369/golang-support/uuid"
 )
 
 const (
 	progname = "groom"
-	version  = "1.1.1"
+	version  = "1.2.0"
 )
 
 var (
-	config          *uconfig.UConfig
-	logger, slogger *ulog.ULog
-	mode            string
-	domains         = Domains()
+	config           *uconfig.UConfig
+	logger, slogger  *ulog.ULog
+	mode             string
+	domains          = Domains()
+	instance, secret = uuid.BUUID(), uuid.BUUID()
 )
 
 func main() {
 	var err error
 
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s <configuration>\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "usage: %s <configuration> | password [<secret> [<salt>]]\n", filepath.Base(os.Args[0]))
 		os.Exit(1)
 	}
+
+	if os.Args[1] == "password" {
+		pick, secret, salt := true, "", ""
+		if len(os.Args) > 2 {
+			secret = os.Args[2]
+			pick = false
+		} else {
+			value := make([]byte, 32, 32)
+			if _, err := rand.Read(value); err == nil {
+				secret = base64.RawURLEncoding.EncodeToString(value)
+			}
+		}
+		if len(os.Args) > 3 {
+			salt = os.Args[3]
+		} else {
+			value := make([]byte, 6, 6)
+			rand.Read(value)
+			if _, err := rand.Read(value); err == nil {
+				salt = base64.RawStdEncoding.EncodeToString(value)
+			}
+		}
+		if len(secret) < 8 || len(salt) < 8 {
+			fmt.Fprintf(os.Stderr, "provided secret and/or salt are too short - aborting\n")
+			os.Exit(1)
+		}
+		fmt.Printf("%s", acl.Crypt512(secret, salt, 0))
+		if pick {
+			fmt.Printf(" - %s", secret)
+		}
+		fmt.Printf("\n")
+		os.Exit(0)
+	}
+
 	if config, err = uconfig.New(os.Args[1]); err != nil {
 		fmt.Fprintf(os.Stderr, "configuration syntax error: %v - aborting\n", err)
 		os.Exit(2)

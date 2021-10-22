@@ -2,7 +2,7 @@
 
 # build targets
 groom: *.go
-	@env GOPATH=/tmp/go CGO_ENABLED=0 go build -trimpath -o groom
+	@env GOPATH=/tmp/go CGO_ENABLED=0 go get && go build -trimpath -o groom
 	@-strip groom 2>/dev/null || true
 	@-upx -9 groom 2>/dev/null || true
 clean:

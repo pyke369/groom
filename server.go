@@ -3,8 +3,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha1"
 	"crypto/tls"
-	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pyke369/golang-support/acl"
 	"github.com/pyke369/golang-support/bslab"
 	"github.com/pyke369/golang-support/dynacert"
 	"github.com/pyke369/golang-support/rcache"
@@ -93,26 +94,17 @@ func server_agent(response http.ResponseWriter, request *http.Request) {
 		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "inactive domain"})
 		return
 	}
-	if domain.Secret == "" || secret != domain.Secret {
+	if domain.Secret == "" || !acl.Password(secret, []string{domain.Secret}) {
 		response.WriteHeader(unavailable)
 		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "invalid agent authentication"})
 		return
 	}
-	remote, _, _ := net.SplitHostPort(request.RemoteAddr)
-	if len(domain.Sources) != 0 {
-		matched, ip := false, net.ParseIP(remote)
-		for _, entry := range domain.Sources {
-			if entry.Contains(ip) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			response.WriteHeader(unavailable)
-			logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "agent connection from unauthorized network"})
-			return
-		}
+	if !acl.CIDR(request.RemoteAddr, domain.Sources) {
+		response.WriteHeader(unavailable)
+		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "agent connection from unauthorized network"})
+		return
 	}
+
 	domain.HandleConnect(response, request, func(ws *uws.Socket, mode int, data []byte) bool {
 		length := len(data)
 		if mode == uws.WEBSOCKET_OPCODE_BLOB && length >= 4 {
@@ -130,7 +122,7 @@ func server_agent(response http.ResponseWriter, request *http.Request) {
 	})
 }
 
-func server_log(start time.Time, reason, domain, auth, id string, request *http.Request, status, in, out int) {
+func server_log(start time.Time, reason, domain, id string, request *http.Request, status, in, out int) {
 	info := map[string]interface{}{
 		"start":    start.UnixNano() / 1000000,
 		"domain":   domain,
@@ -144,9 +136,6 @@ func server_log(start time.Time, reason, domain, auth, id string, request *http.
 	}
 	if reason != "" {
 		info["reason"] = reason
-	}
-	if auth != "" {
-		info["auth"] = auth
 	}
 	path := request.URL.Path
 	if value := strings.TrimSpace(request.URL.RawQuery); value != "" {
@@ -186,7 +175,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 	if domain == nil || !domain.IsConnected() {
 		response.WriteHeader(unavailable)
 		if config.GetBoolean(progname+".log.disconnected", false) {
-			server_log(start, "disconnected domain", name, "", id, request, http.StatusNotFound, in, out)
+			server_log(start, "disconnected domain", name, id, request, http.StatusNotFound, in, out)
 		}
 		return
 	}
@@ -194,101 +183,58 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 	if request.Method == http.MethodPost || request.Method == http.MethodPut {
 		if request.ContentLength < 0 {
 			response.WriteHeader(http.StatusLengthRequired)
-			server_log(start, "missing content length", name, "", id, request, http.StatusLengthRequired, in, out)
+			server_log(start, "missing content length", name, id, request, http.StatusLengthRequired, in, out)
 			return
 		}
 		if int(request.ContentLength) >= domain.Size {
 			response.WriteHeader(http.StatusRequestEntityTooLarge)
-			server_log(start, "request too large", name, id, "", request, http.StatusRequestEntityTooLarge, int(request.ContentLength), out)
+			server_log(start, "request too large", name, id, request, http.StatusRequestEntityTooLarge, int(request.ContentLength), out)
 			return
 		}
 	}
 
-	remote, _, _ := net.SplitHostPort(request.RemoteAddr)
-	if len(domain.Networks) != 0 {
-		matched, ip := false, net.ParseIP(remote)
-		for _, entry := range domain.Networks {
-			if entry.Contains(ip) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			response.WriteHeader(unavailable)
-			server_log(start, "unauthorized network", name, "", id, request, http.StatusForbidden, in, out)
-			return
-		}
+	if !acl.CIDR(request.RemoteAddr, domain.Networks) {
+		response.WriteHeader(unavailable)
+		server_log(start, "unauthorized network", name, id, request, http.StatusForbidden, in, out)
+		return
 	}
 
-	if len(domain.Ranges) != 0 {
-		matched, now := false, time.Now().UTC()
-		day, stamp := int(now.Weekday()), now.Hour()*3600+now.Minute()*60+now.Second()
-		if day == 0 {
-			day = 7
-		}
-		for _, entry := range domain.Ranges {
-			if (!entry.Dates[0].IsZero() && now.Sub(entry.Dates[0]) < 0) || (!entry.Dates[1].IsZero() && now.Sub(entry.Dates[1]) > 0) ||
-				(entry.Days[0] != 0 && day < entry.Days[0]) || (entry.Days[1] != 0 && day > entry.Days[1]) ||
-				(entry.Times[0] != 0 && stamp < entry.Times[0]) || (entry.Times[1] != 0 && stamp > entry.Times[1]) {
-				continue
-			}
-			matched = true
-			break
-		}
-		if !matched {
-			response.WriteHeader(unavailable)
-			server_log(start, "unauthorized timerange", name, "", id, request, http.StatusForbidden, in, out)
-			return
-		}
+	if !acl.Ranges(time.Now(), domain.Ranges) {
+		response.WriteHeader(unavailable)
+		server_log(start, "unauthorized timerange", name, id, request, http.StatusForbidden, in, out)
+		return
 	}
 
-	sauth := ""
 	if len(domain.Credentials) != 0 {
-		cookie, auth, cname := "", "", "_"+progname
-		if value, err := request.Cookie(cname); err == nil {
-			if value, err := base64.StdEncoding.DecodeString(value.Value); err == nil {
-				cookie = string(value)
+		cookie, seal := fmt.Sprintf("%s%x", progname, instance[:4]), fmt.Sprintf("%x", sha1.Sum(append(append(secret, instance...), []byte(name)...)))
+		if value, _ := request.Cookie(cookie); value == nil || value.Value != seal {
+			login, password, _ := request.BasicAuth()
+			if !acl.Password(fmt.Sprintf("%s:%s", login, password), domain.Credentials) {
+				response.Header().Set("WWW-Authenticate", fmt.Sprintf(`Basic realm="%s"`, domain.Banner))
+				response.WriteHeader(http.StatusUnauthorized)
+				return
 			}
-		}
-		if login, password, ok := request.BasicAuth(); ok {
-			auth = fmt.Sprintf("%s:%s", login, password)
-		}
-		matched := ""
-		for _, entry := range domain.Credentials {
-			if cookie == entry {
-				matched = "cookie"
-				break
-			}
-			if auth == entry {
-				matched = "auth"
-				break
-			}
-		}
-		if matched == "" {
-			response.Header().Set("WWW-Authenticate", fmt.Sprintf(`Basic realm="%s"`, domain.Banner))
-			response.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		sauth = fmt.Sprintf("credentials:%s", strings.Split(auth, ":")[0])
-		if matched == "auth" {
-			http.SetCookie(response, &http.Cookie{Name: cname, Value: base64.StdEncoding.EncodeToString([]byte(auth)), Path: "/", MaxAge: 1200})
+			http.SetCookie(response, &http.Cookie{Name: cookie, Value: seal, Path: "/", MaxAge: 1200})
 			request.Header.Del("Authorization")
 		}
-		cname += "="
-		cookies := []string{}
-		for _, cookie := range strings.Split(request.Header.Get("Cookie"), ";") {
-			cookie = strings.TrimSpace(cookie)
-			if cookie != "" && !strings.HasPrefix(cookie, cname) {
-				cookies = append(cookies, cookie)
+		cookies := strings.Split(request.Header.Get("Cookie"), ";")
+		for index, value := range cookies {
+			if strings.Contains(value, cookie+"=") {
+				cookies = append(cookies[0:index], cookies[index+1:]...)
+				break
 			}
 		}
 		if len(cookies) != 0 {
+			for index, _ := range cookies {
+				cookies[index] = strings.TrimSpace(cookies[index])
+			}
 			request.Header.Set("Cookie", strings.Join(cookies, "; "))
 		} else {
 			request.Header.Del("Cookie")
 		}
 	}
 
+	remote, _, _ := net.SplitHostPort(request.RemoteAddr)
 	request.Header.Set("X-Forwarded-For", remote)
 	request.Header.Set("X-Forwarded-Host", name)
 	request.Header.Set("X-Forwarded-Port", port)
@@ -338,7 +284,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 			if errored != nil {
 				stream.Shutdown(true, true)
 				response.WriteHeader(http.StatusBadGateway)
-				server_log(start, fmt.Sprintf("%v", errored), name, sauth, id, request, http.StatusBadGateway, in, out)
+				server_log(start, fmt.Sprintf("%v", errored), name, id, request, http.StatusBadGateway, in, out)
 			} else {
 				upgraded, timeout, status := false, uconfig.Duration(config.GetDurationBounds(progname+".write_timeout", 20, 5, 60)), 0
 				for {
@@ -375,11 +321,11 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 						response.WriteHeader(aresponse.StatusCode)
 						aresponse.Body.Close()
 						if frame.Flags&FLAG_END != 0 {
-							server_log(start, "", name, sauth, id, request, status, in, out)
+							server_log(start, "", name, id, request, status, in, out)
 							break
 						}
 						if upgraded {
-							server_log(start, "raw session startup", name, sauth, id, request, status, in, out)
+							server_log(start, "raw session startup", name, id, request, status, in, out)
 							break
 						}
 					}
@@ -398,7 +344,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 							}
 						}
 						if frame.Flags&FLAG_END != 0 {
-							server_log(start, "", name, sauth, id, request, status, in, out)
+							server_log(start, "", name, id, request, status, in, out)
 							break
 						}
 					}
@@ -449,18 +395,18 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 							}
 						}
 						client.Close()
-						server_log(start, "raw session teardown", sauth, name, id, request, 0, in, out)
+						server_log(start, "raw session teardown", name, id, request, 0, in, out)
 					}
 				}
 			}
 			bslab.Put(data)
 		} else {
 			response.WriteHeader(http.StatusBadRequest)
-			server_log(start, "", sauth, name, id, request, http.StatusBadRequest, in, out)
+			server_log(start, "", name, id, request, http.StatusBadRequest, in, out)
 		}
 		stream.Shutdown(false, true)
 	} else {
 		response.WriteHeader(http.StatusTooManyRequests)
-		server_log(start, "", name, sauth, id, request, http.StatusTooManyRequests, in, out)
+		server_log(start, "", name, id, request, http.StatusTooManyRequests, in, out)
 	}
 }

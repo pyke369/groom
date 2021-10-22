@@ -1,3 +1,9 @@
+groom (1.2.0) stable; urgency=medium
+
+  * upgrade to Go 1.17 and leverage acl helper from golang-support
+
+ -- Pierre-Yves Kerembellec <py.kerembellec@gmail.com>  Sat, 11 Aug 2021 12:58:11 +0200
+
 groom (1.1.1) stable; urgency=medium
 
   * remove hop-by-hop headers
