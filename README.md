@@ -211,6 +211,9 @@ Archive:  /mnt/hgfs/Downloads/groom_1.2.0.zip
 
 $ cd groom
 
+$ ./groom
+usage: groom <configuration> | password [<secret> [<salt>]]
+
 $ ./groom conf/agent.conf
 2019-07-28 18:15:29 INFO {"config":"conf/agent.conf","event":"start","mode":"agent","pid":127857,"version":"1.2.0"}
 
@@ -385,8 +388,9 @@ configuration directives are described below:
 - **`secret`** (no default)
 
   the agent authentication shared secret for this domain (non-empty to authorize agent connections). use hard-to-guess
-  random strings for this (the output of `openssl rand -base64 48` or similar is deemed accaptable) and send it to the
-  `groom` agent operator through a secure channel.
+  random strings for this (the output of `openssl rand -base64 48` or similar is deemed acceptable) and send it to the
+  `groom` agent operator through a secure channel. the secret may also be encrypted with `groom passwd ...` (or
+  `mkpasswd -m sha-512 ...`) before being stored in this file.
 
 - **`concurrency`** (default **`20`**, valid value from **`3`** to **`100`**)
 
@@ -419,7 +423,8 @@ The following directives used in the `clients` sub-section control clients acces
 
 - **`credentials`** (no default)
 
-  the list of credentials (login:password pairs) clients need to provide to issue requests to this domain.
+  the list of credentials (login:password pairs) clients need to provide to issue requests to this domain. the passwords may
+  also be encrypted with `groom passwd ...` (or `mkpasswd -m sha-512 ...`) before being stored in this file.
 
 - **`banner`** (default **`groom`**)
 
@@ -564,7 +569,8 @@ least the `target` directive (if no filtering/routing is needed):
 
 - **`target`** (no default)
 
-  the URL of the local services (only the scheme, host and port parts are considered, see example below).
+  the full URL used to access the local services.
+  // TODO document weighted load-balancing and URL overloading syntaxes
 
 Below is a commented example of an agent domain configuration file (in `/etc/groom/domains/www.domain.com`):
 ```
@@ -587,13 +593,15 @@ groom
         {
             method = "^(OPTIONS|HEAD|GET)$"
             path   = "^/static/.+$"
-            target = "https://localhost:8443/"
+            host   = "static.domain.com"
+            target = "https://localhost:4443/bucket/statics?user=johndoe"
         }
 
         // all other requests directed to this endpoint
         default
         {
-            target = "http://localhost:8000/"
+            host   = "www.domain.com"
+            target = "http://localhost:8000"
         }
     }
 }

@@ -240,6 +240,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 	request.Header.Set("X-Forwarded-Port", port)
 	request.Header.Set("X-Forwarded-Proto", "https")
 	request.Header.Set("X-Transaction-Id", id)
+	request.Header.Del("Expect")
 	if domain.Transaction {
 		response.Header().Set("X-Transaction-Id", id)
 	}

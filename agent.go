@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -76,6 +77,25 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 				request.Host = parts.Host
 			} else if host != "remote" && host != "forwarded" {
 				request.Host = host
+			}
+			if parts.Path != "" || len(parts.Query()) != 0 {
+				if parts.Path == "" {
+					parts.Path = request.URL.Path
+				}
+				parameters := request.URL.Query()
+				for name, value := range parts.Query() {
+					if len(value) == 0 || value[0] == "" {
+						parameters.Del(name)
+					} else {
+						parameters.Set(name, value[0])
+					}
+				}
+				query, separator := parameters.Encode(), ""
+				if query != "" {
+					separator = "?"
+				}
+				request.URL, _ = url.ParseRequestURI(fmt.Sprintf("%s%s%s", parts.Path, separator, query))
+				request.RequestURI = request.URL.String()
 			}
 			if strings.ToLower(request.Header.Get("Connection")) != "upgrade" {
 				request.Header.Del("Connection")

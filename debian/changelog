@@ -1,3 +1,9 @@
+groom (1.2.1) stable; urgency=medium
+
+  * add basic backends weighted load-balacing and URL rewriting in agent
+
+ -- Pierre-Yves Kerembellec <py.kerembellec@gmail.com>  Tue, 09 Nov 2021 10:48:24 +0100
+
 groom (1.2.0) stable; urgency=medium
 
   * upgrade to Go 1.17 and leverage acl helper from golang-support

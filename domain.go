@@ -3,9 +3,12 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"math"
+	"math/rand"
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,11 +18,18 @@ import (
 	"github.com/pyke369/golang-support/uws"
 )
 
+type HOST struct {
+	host   string
+	weight int
+}
 type TARGET struct {
-	Target string
-	Host   string
-	Method *regexp.Regexp
-	Path   *regexp.Regexp
+	protocol string
+	hosts    []*HOST
+	weights  int
+	path     string
+	host     string
+	rmethod  *regexp.Regexp
+	rpath    *regexp.Regexp
 }
 type DOMAIN struct {
 	Name        string
@@ -122,25 +132,43 @@ func (this *DOMAINS) Update() {
 							for _, path := range dconfig.GetPaths(progname + ".targets.active") {
 								name := dconfig.GetString(path, "")
 								if value := strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".target", "")); value != "" {
-									target := &TARGET{Target: value}
-									target.Host = strings.ToLower(strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".host", "target")))
-									if value := strings.TrimSpace(strings.ToUpper(dconfig.GetString(progname+".targets."+name+".method", ""))); value != "" {
-										if matcher := rcache.Get(value); matcher != nil {
-											target.Method = matcher
-										} else {
-											continue
+									if captures := rcache.Get(`^(https?://)([^/]+)(.*)$`).FindStringSubmatch(value); captures != nil {
+										hosts, weights := []*HOST{}, 0
+										for _, host := range strings.Split(captures[2], "|") {
+											if host = strings.TrimSpace(host); host != "" {
+												weight := 1
+												if parts := strings.Split(host, "@"); len(parts) > 1 {
+													host = strings.TrimSpace(parts[1])
+													weight, _ = strconv.Atoi(strings.TrimSpace(parts[0]))
+													weight = int(math.Min(100, math.Max(1, float64(weight))))
+												}
+												hosts = append(hosts, &HOST{host: host, weight: weight})
+												weights += weight
+											}
+										}
+										if len(hosts) != 0 {
+											target := &TARGET{protocol: captures[1], hosts: hosts, weights: weights, path: strings.TrimSpace(captures[3])}
+											target.host = strings.ToLower(strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".host", "target")))
+											if value := strings.TrimSpace(strings.ToUpper(dconfig.GetString(progname+".targets."+name+".method", ""))); value != "" {
+												if matcher := rcache.Get(value); matcher != nil {
+													target.rmethod = matcher
+												} else {
+													continue
+												}
+											}
+											if value := strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".path", "")); value != "" {
+												if matcher := rcache.Get(value); matcher != nil {
+													target.rpath = matcher
+												} else {
+													continue
+												}
+											}
+											targets = append(targets, target)
 										}
 									}
-									if value := strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".path", "")); value != "" {
-										if matcher := rcache.Get(value); matcher != nil {
-											target.Path = matcher
-										} else {
-											continue
-										}
-									}
-									targets = append(targets, target)
 								}
 							}
+
 							domain.lock.Lock()
 							domain.targets = targets
 							domain.lock.Unlock()
@@ -340,10 +368,18 @@ func (this *DOMAIN) Stream(id int, create bool) (stream *STREAM) {
 func (this *DOMAIN) Target(method, path string) (target, host string) {
 	this.lock.RLock()
 	for _, value := range this.targets {
-		if (value.Method != nil && !value.Method.MatchString(method)) || (value.Path != nil && !value.Path.MatchString(path)) {
+		if (value.rmethod != nil && !value.rmethod.MatchString(method)) || (value.rpath != nil && !value.rpath.MatchString(path)) {
 			continue
 		}
-		target, host = value.Target, value.Host
+		host = value.host
+		index, weight := 0, rand.Intn(value.weights)
+		for _, host := range value.hosts {
+			index += host.weight
+			if weight < index {
+				target = fmt.Sprintf("%s%s%s", value.protocol, host.host, value.path)
+				break
+			}
+		}
 		break
 	}
 	this.lock.RUnlock()
