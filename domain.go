@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -41,6 +42,7 @@ type DOMAIN struct {
 	Size        int
 	Transaction bool
 	Sources     []string
+	Forward     []string
 	Networks    []string
 	Ranges      []string
 	Credentials []string
@@ -66,7 +68,7 @@ func Domains() *DOMAINS {
 	return &DOMAINS{list: map[string]*DOMAIN{}}
 }
 
-func (this *DOMAINS) Update() {
+func (d *DOMAINS) Update() {
 	root := config.GetString(progname+".domains", "/etc/"+progname+"/domains")
 	if entries, err := ioutil.ReadDir(root); err == nil {
 		for _, info := range entries {
@@ -74,13 +76,13 @@ func (this *DOMAINS) Update() {
 			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || strings.Contains(name, "dpkg-") {
 				continue
 			}
-			this.lock.Lock()
-			if domain := this.list[name]; domain == nil || (domain.modified.Sub(modified) < 0 && time.Now().Sub(modified) >= 5*time.Second) {
+			d.lock.Lock()
+			if domain := d.list[name]; domain == nil || (domain.modified.Sub(modified) < 0 && time.Since(modified) >= 5*time.Second) {
 				if dconfig, err := uconfig.New(filepath.Join(root, name)); err == nil {
 					hash := dconfig.Hash()
 					if domain == nil {
 						domain = &DOMAIN{Name: name, modified: modified, streams: map[int]*STREAM{}}
-						this.list[domain.Name] = domain
+						d.list[domain.Name] = domain
 						logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": name, "action": "load"})
 					} else {
 						domain.modified = modified
@@ -99,7 +101,12 @@ func (this *DOMAINS) Update() {
 						domain.Transaction = dconfig.GetBoolean(progname+".transaction", config.GetBoolean(progname+".transaction", true))
 
 						if mode == "server" {
-							domain.Sources, domain.Networks, domain.Ranges, domain.Credentials = []string{}, []string{}, []string{}, []string{}
+							domain.Sources, domain.Forward, domain.Networks, domain.Ranges, domain.Credentials = []string{}, []string{}, []string{}, []string{}, []string{}
+							for _, path := range dconfig.GetPaths(progname + ".forward") {
+								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+									domain.Forward = append(domain.Forward, value)
+								}
+							}
 							for _, path := range dconfig.GetPaths(progname + ".networks") {
 								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
 									domain.Sources = append(domain.Sources, value)
@@ -178,15 +185,15 @@ func (this *DOMAINS) Update() {
 					logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": filepath.Join(root, name), "error": fmt.Sprintf("domain syntax error: %v", err)})
 				}
 			}
-			if domain := this.list[name]; domain != nil {
+			if domain := d.list[name]; domain != nil {
 				domain.seen = time.Now()
 			}
-			this.lock.Unlock()
+			d.lock.Unlock()
 		}
 	}
-	this.lock.RLock()
-	for _, domain := range this.list {
-		if time.Now().Sub(domain.seen) >= 15*time.Second {
+	d.lock.RLock()
+	for _, domain := range d.list {
+		if time.Since(domain.seen) >= 15*time.Second {
 			domain.lock.Lock()
 			domain.active = false
 			domain.lock.Unlock()
@@ -225,26 +232,26 @@ func (this *DOMAINS) Update() {
 			domain.lock.RUnlock()
 		}
 	}
-	this.lock.RUnlock()
+	d.lock.RUnlock()
 }
 
-func (this *DOMAINS) Get(name string) (domain *DOMAIN) {
-	this.lock.RLock()
-	domain = this.list[name]
-	this.lock.RUnlock()
+func (d *DOMAINS) Get(name string) (domain *DOMAIN) {
+	d.lock.RLock()
+	domain = d.list[name]
+	d.lock.RUnlock()
 	return
 }
 
-func (this *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Request, handler func(*uws.Socket, int, []byte) bool) {
-	this.lock.Lock()
-	if this.connecting || this.connected {
-		this.lock.Unlock()
+func (d *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Request, handler func(*uws.Socket, int, []byte) bool) {
+	d.lock.Lock()
+	if d.connecting || d.connected {
+		d.lock.Unlock()
 		response.WriteHeader(http.StatusNotFound)
-		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": this.Name, "remote": request.RemoteAddr, "error": "agent already connected"})
+		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": d.Name, "remote": request.RemoteAddr, "error": "agent already connected"})
 		return
 	}
-	this.connecting = true
-	this.lock.Unlock()
+	d.connecting = true
+	d.lock.Unlock()
 	if handled, _ := uws.Handle(response, request, &uws.Config{
 		Protocols:    []string{progname},
 		NeedProtocol: true,
@@ -272,24 +279,24 @@ func (this *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Re
 			logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "disconnect"})
 		},
 		MessageHandler: handler,
-		Context:        this,
+		Context:        d,
 	}); !handled {
-		this.lock.Lock()
-		this.connecting = false
-		this.lock.Unlock()
+		d.lock.Lock()
+		d.connecting = false
+		d.lock.Unlock()
 		response.WriteHeader(http.StatusNotFound)
-		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": this.Name, "remote": request.RemoteAddr, "error": "websocket upgrade failed"})
+		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": d.Name, "remote": request.RemoteAddr, "error": "websocket upgrade failed"})
 	}
 }
 
-func (this *DOMAIN) Connect(handler func(*uws.Socket, int, []byte) bool) {
-	this.lock.Lock()
-	if !this.connecting && !this.connected {
-		this.connecting = true
-		this.lock.Unlock()
-		if _, err := uws.Dial(fmt.Sprintf("wss://%s%s", this.Remote, this.Service), "", &uws.Config{
-			Headers:      map[string]string{"Authorization": fmt.Sprintf("Bearer %s", this.Secret)},
-			Insecure:     this.Insecure,
+func (d *DOMAIN) Connect(handler func(*uws.Socket, int, []byte) bool) {
+	d.lock.Lock()
+	if !d.connecting && !d.connected {
+		d.connecting = true
+		d.lock.Unlock()
+		if _, err := uws.Dial(fmt.Sprintf("wss://%s%s", d.Remote, d.Service), "", &uws.Config{
+			Headers:      map[string]string{"Authorization": fmt.Sprintf("Bearer %s", d.Secret)},
+			TLSConfig:    &tls.Config{InsecureSkipVerify: d.Insecure},
 			Protocols:    []string{progname},
 			FragmentSize: 64 << 10,
 			ReadSize:     16 << 10,
@@ -314,60 +321,60 @@ func (this *DOMAIN) Connect(handler func(*uws.Socket, int, []byte) bool) {
 				logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "disconnect"})
 			},
 			MessageHandler: handler,
-			Context:        this,
+			Context:        d,
 		}); err != nil {
-			this.lock.Lock()
-			this.connecting = false
-			this.lock.Unlock()
-			logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": this.Name, "remote": this.Remote, "error": fmt.Sprintf("%v", err)})
+			d.lock.Lock()
+			d.connecting = false
+			d.lock.Unlock()
+			logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": d.Name, "remote": d.Remote, "error": fmt.Sprintf("%v", err)})
 		}
 	} else {
-		this.lock.Unlock()
+		d.lock.Unlock()
 	}
 }
 
-func (this *DOMAIN) IsActive() (active bool) {
-	this.lock.RLock()
-	active = this.active
-	this.lock.RUnlock()
+func (d *DOMAIN) IsActive() (active bool) {
+	d.lock.RLock()
+	active = d.active
+	d.lock.RUnlock()
 	return
 }
 
-func (this *DOMAIN) IsConnected() (connected bool) {
-	this.lock.RLock()
-	connected = this.active && this.connected
-	this.lock.RUnlock()
+func (d *DOMAIN) IsConnected() (connected bool) {
+	d.lock.RLock()
+	connected = d.active && d.connected
+	d.lock.RUnlock()
 	return
 }
 
-func (this *DOMAIN) Stream(id int, create bool) (stream *STREAM) {
-	this.lock.Lock()
-	if id >= 0 || (id < 0 && len(this.streams) < this.Concurrency) {
+func (d *DOMAIN) Stream(id int, create bool) (stream *STREAM) {
+	d.lock.Lock()
+	if id >= 0 || (id < 0 && len(d.streams) < d.Concurrency) {
 		if id < 0 {
 			for {
-				this.id++
-				this.id %= (1 << 24)
-				if this.streams[this.id] == nil {
-					id = this.id
+				d.id++
+				d.id %= (1 << 24)
+				if d.streams[d.id] == nil {
+					id = d.id
 					break
 				}
 			}
 		}
-		if stream = this.streams[id]; stream == nil {
+		if stream = d.streams[id]; stream == nil {
 			if create {
-				stream = &STREAM{domain: this, id: id, queue: make(chan *FRAME, 256)}
-				this.streams[id] = stream
-				logger.Debug(map[string]interface{}{"mode": mode, "event": "stream", "domain": this.Name, "stream": id, "action": "activate"})
+				stream = &STREAM{domain: d, id: id, queue: make(chan *FRAME, 256)}
+				d.streams[id] = stream
+				logger.Debug(map[string]interface{}{"mode": mode, "event": "stream", "domain": d.Name, "stream": id, "action": "activate"})
 			}
 		}
 	}
-	this.lock.Unlock()
+	d.lock.Unlock()
 	return
 }
 
-func (this *DOMAIN) Target(method, path string) (target, host string) {
-	this.lock.RLock()
-	for _, value := range this.targets {
+func (d *DOMAIN) Target(method, path string) (target, host string) {
+	d.lock.RLock()
+	for _, value := range d.targets {
 		if (value.rmethod != nil && !value.rmethod.MatchString(method)) || (value.rpath != nil && !value.rpath.MatchString(path)) {
 			continue
 		}
@@ -382,6 +389,6 @@ func (this *DOMAIN) Target(method, path string) (target, host string) {
 		}
 		break
 	}
-	this.lock.RUnlock()
+	d.lock.RUnlock()
 	return
 }

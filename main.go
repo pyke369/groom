@@ -17,7 +17,7 @@ import (
 
 const (
 	progname = "groom"
-	version  = "1.2.1"
+	version  = "1.2.2"
 )
 
 var (
@@ -42,7 +42,7 @@ func main() {
 			secret = os.Args[2]
 			pick = false
 		} else {
-			value := make([]byte, 32, 32)
+			value := make([]byte, 32)
 			if _, err := rand.Read(value); err == nil {
 				secret = base64.RawURLEncoding.EncodeToString(value)
 			}
@@ -50,7 +50,7 @@ func main() {
 		if len(os.Args) > 3 {
 			salt = os.Args[3]
 		} else {
-			value := make([]byte, 6, 6)
+			value := make([]byte, 6)
 			rand.Read(value)
 			if _, err := rand.Read(value); err == nil {
 				salt = base64.RawStdEncoding.EncodeToString(value)

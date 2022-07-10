@@ -32,16 +32,13 @@ func server_run() {
 			parts[0], parts[1] = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 			certificates := &dynacert.DYNACERT{}
 			if len(parts) > 2 {
-				parts[2] = strings.TrimSpace(parts[2])
-				certificates.Public, certificates.Key = parts[1], parts[2]
+				certificates.Add("*", parts[1], strings.TrimSpace(parts[2]))
 			} else if matcher := rcache.Get(`^(\S+)\s+(\S+)\s+(\S+)$`); matcher != nil {
-				cconfig := [][3]string{}
 				for _, path := range config.GetPaths(parts[1]) {
 					if captures := matcher.FindStringSubmatch(strings.TrimSpace(config.GetString(path, ""))); len(captures) > 3 {
-						cconfig = append(cconfig, [3]string{captures[1], captures[2], captures[3]})
+						certificates.Add(captures[1], captures[2], captures[3])
 					}
 				}
-				certificates.Config = cconfig
 			}
 			server := &http.Server{
 				Handler:           handler,
@@ -132,7 +129,7 @@ func server_log(start time.Time, reason, domain, id string, request *http.Reques
 		"status":   status,
 		"in":       in,
 		"out":      out,
-		"duration": fmt.Sprintf("%v", time.Now().Sub(start).Round(time.Microsecond)),
+		"duration": fmt.Sprintf("%v", time.Since(start).Round(time.Microsecond)),
 	}
 	if reason != "" {
 		info["reason"] = reason
@@ -225,7 +222,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 			}
 		}
 		if len(cookies) != 0 {
-			for index, _ := range cookies {
+			for index := range cookies {
 				cookies[index] = strings.TrimSpace(cookies[index])
 			}
 			request.Header.Set("Cookie", strings.Join(cookies, "; "))
@@ -235,6 +232,11 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 	}
 
 	remote, _, _ := net.SplitHostPort(request.RemoteAddr)
+	if len(domain.Forward) > 0 && acl.CIDR(request.RemoteAddr, domain.Forward) {
+		if value := request.Header.Get("X-Forwarded-For"); value != "" {
+			remote = value
+		}
+	}
 	request.Header.Set("X-Forwarded-For", remote)
 	request.Header.Set("X-Forwarded-Host", name)
 	request.Header.Set("X-Forwarded-Port", port)
@@ -309,7 +311,7 @@ func server_request(response http.ResponseWriter, request *http.Request) {
 						if frame.Flags&FLAG_UPGD != 0 {
 							upgraded = true
 						}
-						for name, _ := range aresponse.Header {
+						for name := range aresponse.Header {
 							if name != "Set-Cookie" && name != "Keep-Alive" && (upgraded || name != "Connection") && name != "Transfer-Encoding" {
 								response.Header().Set(name, aresponse.Header.Get(name))
 							}

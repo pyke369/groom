@@ -33,73 +33,73 @@ type STREAM struct {
 	queue  chan *FRAME
 }
 
-func (this *STREAM) Queue(flags int, data []byte) (err error) {
-	this.lock.RLock()
-	if !this.shut {
-		this.queue <- &FRAME{flags, data}
+func (s *STREAM) Queue(flags int, data []byte) (err error) {
+	s.lock.RLock()
+	if !s.shut {
+		s.queue <- &FRAME{flags, data}
 	} else {
 		err = fmt.Errorf("shut")
 	}
-	this.lock.RUnlock()
+	s.lock.RUnlock()
 	return
 }
 
-func (this *STREAM) Read(timeout time.Duration, ctx context.Context) (frame *FRAME) {
-	this.lock.RLock()
-	if this.shut {
-		this.lock.RUnlock()
+func (s *STREAM) Read(timeout time.Duration, ctx context.Context) (frame *FRAME) {
+	s.lock.RLock()
+	if s.shut {
+		s.lock.RUnlock()
 		return nil
 	}
-	this.lock.RUnlock()
+	s.lock.RUnlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	select {
-	case frame = <-this.queue:
+	case frame = <-s.queue:
 	case <-time.After(timeout):
 	case <-ctx.Done():
 	}
 	return
 }
 
-func (this *STREAM) Write(flags int, data []byte) (err error) {
-	this.lock.RLock()
-	if this.shut {
-		this.lock.RUnlock()
+func (s *STREAM) Write(flags int, data []byte) (err error) {
+	s.lock.RLock()
+	if s.shut {
+		s.lock.RUnlock()
 		err = fmt.Errorf("shut")
 	} else {
-		this.lock.RUnlock()
-		this.domain.lock.RLock()
-		if this.domain.connected {
-			this.domain.lock.RUnlock()
-			err = this.domain.agent.Write(uws.WEBSOCKET_OPCODE_BLOB, append(data, []byte{byte(flags), byte(this.id >> 16), byte(this.id >> 8), byte(this.id)}...))
+		s.lock.RUnlock()
+		s.domain.lock.RLock()
+		if s.domain.connected {
+			s.domain.lock.RUnlock()
+			err = s.domain.agent.Write(uws.WEBSOCKET_OPCODE_BLOB, append(data, []byte{byte(flags), byte(s.id >> 16), byte(s.id >> 8), byte(s.id)}...))
 		} else {
-			this.domain.lock.RUnlock()
+			s.domain.lock.RUnlock()
 			err = fmt.Errorf("disconnected")
 		}
 	}
 	return
 }
 
-func (this *STREAM) Status(code int) {
+func (s *STREAM) Status(code int) {
 	headers := fmt.Sprintf("HTTP/1.1 %d %s\r\nDate: %s\r\n\r\n", code, http.StatusText(code), time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"))
-	this.Write(FLAG_HEAD|FLAG_START|FLAG_END, []byte(headers))
+	s.Write(FLAG_HEAD|FLAG_START|FLAG_END, []byte(headers))
 }
 
-func (this *STREAM) Shutdown(abort bool, remove bool) {
-	this.lock.RLock()
-	if !this.shut {
-		this.lock.RUnlock()
+func (s *STREAM) Shutdown(abort bool, remove bool) {
+	s.lock.RLock()
+	if !s.shut {
+		s.lock.RUnlock()
 		if abort {
-			this.Write(FLAG_ABRT, nil)
+			s.Write(FLAG_ABRT, nil)
 		}
-		this.lock.Lock()
-		this.shut = true
-		this.lock.Unlock()
+		s.lock.Lock()
+		s.shut = true
+		s.lock.Unlock()
 	flushed:
 		for {
 			select {
-			case frame := <-this.queue:
+			case frame := <-s.queue:
 				if frame != nil {
 					bslab.Put(frame.Data)
 				}
@@ -107,16 +107,16 @@ func (this *STREAM) Shutdown(abort bool, remove bool) {
 				break flushed
 			}
 		}
-		this.lock.Lock()
-		close(this.queue)
-		this.lock.Unlock()
+		s.lock.Lock()
+		close(s.queue)
+		s.lock.Unlock()
 		if remove {
-			this.domain.lock.Lock()
-			delete(this.domain.streams, this.id)
-			this.domain.lock.Unlock()
+			s.domain.lock.Lock()
+			delete(s.domain.streams, s.id)
+			s.domain.lock.Unlock()
 		}
-		logger.Debug(map[string]interface{}{"mode": mode, "event": "stream", "domain": this.domain.Name, "stream": this.id, "action": "shutdown"})
+		logger.Debug(map[string]interface{}{"mode": mode, "event": "stream", "domain": s.domain.Name, "stream": s.id, "action": "shutdown"})
 	} else {
-		this.lock.RUnlock()
+		s.lock.RUnlock()
 	}
 }

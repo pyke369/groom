@@ -407,6 +407,10 @@ configuration directives are described below:
   whether to return the request transaction id to the client (in the X-Transaction-Id response header) or not. supersedes the
   corresponding global value from the server main configuration file if set at domain level.
 
+- **`forward`** (no default)
+
+  the list of networks (@IP blocks in CIDR format) trusted to forward the X-Forwarded-For header to agents.
+
 - **`networks`** (no default)
 
   the list of networks (@IP blocks in CIDR format) agents are authorized to connect from for this domain.
