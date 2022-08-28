@@ -383,7 +383,12 @@ func (d *DOMAIN) Target(method, path string) (target, host string) {
 		for _, host := range value.hosts {
 			index += host.weight
 			if weight < index {
-				target = fmt.Sprintf("%s%s%s", value.protocol, host.host, value.path)
+				if value.rpath != nil {
+					path = value.rpath.ReplaceAllString(path, value.path)
+				} else {
+					path = value.path
+				}
+				target = fmt.Sprintf("%s%s%s", value.protocol, host.host, path)
 				break
 			}
 		}
