@@ -3,10 +3,10 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -64,15 +64,18 @@ type DOMAINS struct {
 	list map[string]*DOMAIN
 }
 
-func Domains() *DOMAINS {
+func NewDomains() *DOMAINS {
 	return &DOMAINS{list: map[string]*DOMAIN{}}
 }
 
 func (d *DOMAINS) Update() {
-	root := config.GetString(progname+".domains", "/etc/"+progname+"/domains")
-	if entries, err := ioutil.ReadDir(root); err == nil {
-		for _, info := range entries {
-			name, modified := info.Name(), info.ModTime()
+	root := Config.GetString(PROGNAME+".domains", "/etc/"+PROGNAME+"/domains")
+	if entries, err := os.ReadDir(root); err == nil {
+		for _, entry := range entries {
+			name, modified := entry.Name(), time.Now()
+			if info, err := entry.Info(); err == nil {
+				modified = info.ModTime()
+			}
 			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || strings.Contains(name, "dpkg-") {
 				continue
 			}
@@ -83,62 +86,62 @@ func (d *DOMAINS) Update() {
 					if domain == nil {
 						domain = &DOMAIN{Name: name, modified: modified, streams: map[int]*STREAM{}}
 						d.list[domain.Name] = domain
-						logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": name, "action": "load"})
+						Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": name, "action": "load"})
 					} else {
 						domain.modified = modified
 					}
 					if domain.hash != "" && domain.hash != hash {
-						logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": name, "action": "update"})
+						Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": name, "action": "update"})
 					}
 					if domain.hash != hash {
 						domain.hash = hash
 						domain.lock.Lock()
-						domain.active = dconfig.GetBoolean(progname+".active", false)
+						domain.active = dconfig.GetBoolean(PROGNAME+".active", false)
 						domain.lock.Unlock()
-						domain.Secret = strings.TrimSpace(dconfig.GetString(progname+".secret", ""))
-						domain.Concurrency = int(dconfig.GetIntegerBounds(progname+".concurrency", 20, 3, 100))
-						domain.Size = int(dconfig.GetSizeBounds(progname+".body_size", config.GetSizeBounds(progname+".body_size", 8<<20, 64<<10, 1<<30), 64<<10, 1<<30))
-						domain.Transaction = dconfig.GetBoolean(progname+".transaction", config.GetBoolean(progname+".transaction", true))
+						domain.Secret = strings.TrimSpace(dconfig.GetString(PROGNAME+".secret", ""))
+						domain.Concurrency = int(dconfig.GetIntegerBounds(PROGNAME+".concurrency", 20, 3, 1000))
+						domain.Size = int(dconfig.GetSizeBounds(PROGNAME+".body_size", Config.GetSizeBounds(PROGNAME+".body_size", 8<<20, 64<<10, 1<<30), 64<<10, 1<<30))
+						domain.Transaction = dconfig.GetBoolean(PROGNAME+".transaction", Config.GetBoolean(PROGNAME+".transaction", true))
 
-						if mode == "server" {
+						if Mode == "server" {
 							domain.Sources, domain.Forward, domain.Networks, domain.Ranges, domain.Credentials = []string{}, []string{}, []string{}, []string{}, []string{}
-							for _, path := range dconfig.GetPaths(progname + ".forward") {
+							for _, path := range dconfig.GetPaths(PROGNAME + ".forward") {
 								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
 									domain.Forward = append(domain.Forward, value)
 								}
 							}
-							for _, path := range dconfig.GetPaths(progname + ".networks") {
+							for _, path := range dconfig.GetPaths(PROGNAME + ".networks") {
 								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
 									domain.Sources = append(domain.Sources, value)
 								}
 							}
-							for _, path := range dconfig.GetPaths(progname + ".clients.networks") {
+							for _, path := range dconfig.GetPaths(PROGNAME + ".clients.networks") {
 								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
 									domain.Networks = append(domain.Networks, value)
 								}
 							}
-							for _, path := range dconfig.GetPaths(progname + ".clients.ranges") {
+							for _, path := range dconfig.GetPaths(PROGNAME + ".clients.ranges") {
 								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
 									domain.Ranges = append(domain.Ranges, value)
 								}
 							}
-							for _, path := range dconfig.GetPaths(progname + ".clients.credentials") {
+							for _, path := range dconfig.GetPaths(PROGNAME + ".clients.credentials") {
 								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
 									domain.Credentials = append(domain.Credentials, value)
 								}
 							}
-							domain.Concurrency = int(dconfig.GetIntegerBounds(progname+".concurrency", 20, 3, 100))
-							domain.Banner = strings.TrimSpace(dconfig.GetString(progname+".clients.banner", progname))
+							domain.Concurrency = int(dconfig.GetIntegerBounds(PROGNAME+".concurrency", 20, 3, 1000))
+							domain.Banner = strings.TrimSpace(dconfig.GetString(PROGNAME+".clients.banner", PROGNAME))
 						}
 
-						if mode == "agent" {
-							domain.Remote = strings.TrimSpace(dconfig.GetString(progname+".remote", name+":443"))
-							domain.Service = strings.TrimSpace(dconfig.GetString(progname+".service", "/.well-known/"+progname+"-agent"))
-							domain.Insecure = dconfig.GetBoolean(progname+".insecure", false)
+						if Mode == "agent" {
+							domain.Remote = strings.TrimSpace(dconfig.GetString(PROGNAME+".remote", name+":443"))
+							domain.Service = strings.TrimSpace(dconfig.GetString(PROGNAME+".service", "/.well-known/"+PROGNAME+"-agent"))
+							domain.Insecure = dconfig.GetBoolean(PROGNAME+".insecure", false)
 							targets := []*TARGET{}
-							for _, path := range dconfig.GetPaths(progname + ".targets.active") {
+							for _, path := range dconfig.GetPaths(PROGNAME + ".targets.active") {
 								name := dconfig.GetString(path, "")
-								if value := strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".target", "")); value != "" {
+								if value := strings.TrimSpace(dconfig.GetString(PROGNAME+".targets."+name+".target", "")); value != "" {
 									if captures := rcache.Get(`^(https?://)([^/]+)(.*)$`).FindStringSubmatch(value); captures != nil {
 										hosts, weights := []*HOST{}, 0
 										for _, host := range strings.Split(captures[2], "|") {
@@ -155,15 +158,15 @@ func (d *DOMAINS) Update() {
 										}
 										if len(hosts) != 0 {
 											target := &TARGET{protocol: captures[1], hosts: hosts, weights: weights, path: strings.TrimSpace(captures[3])}
-											target.host = strings.ToLower(strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".host", "target")))
-											if value := strings.TrimSpace(strings.ToUpper(dconfig.GetString(progname+".targets."+name+".method", ""))); value != "" {
+											target.host = strings.ToLower(strings.TrimSpace(dconfig.GetString(PROGNAME+".targets."+name+".host", "target")))
+											if value := strings.TrimSpace(strings.ToUpper(dconfig.GetString(PROGNAME+".targets."+name+".method", ""))); value != "" {
 												if matcher := rcache.Get(value); matcher != nil {
 													target.rmethod = matcher
 												} else {
 													continue
 												}
 											}
-											if value := strings.TrimSpace(dconfig.GetString(progname+".targets."+name+".path", "")); value != "" {
+											if value := strings.TrimSpace(dconfig.GetString(PROGNAME+".targets."+name+".path", "")); value != "" {
 												if matcher := rcache.Get(value); matcher != nil {
 													target.rpath = matcher
 												} else {
@@ -182,7 +185,7 @@ func (d *DOMAINS) Update() {
 						}
 					}
 				} else {
-					logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": filepath.Join(root, name), "error": fmt.Sprintf("domain syntax error: %v", err)})
+					Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": filepath.Join(root, name), "error": fmt.Sprintf("domain syntax error: %v", err)})
 				}
 			}
 			if domain := d.list[name]; domain != nil {
@@ -201,7 +204,7 @@ func (d *DOMAINS) Update() {
 		domain.lock.RLock()
 		if domain.active {
 			domain.lock.RUnlock()
-			if mode == "agent" {
+			if Mode == "agent" {
 				domain.Connect(func(ws *uws.Socket, mode int, data []byte) bool {
 					length := len(data)
 					if mode == uws.WEBSOCKET_OPCODE_BLOB && length >= 4 {
@@ -216,7 +219,7 @@ func (d *DOMAINS) Update() {
 						}
 						if flags&FLAG_START != 0 {
 							if stream := domain.Stream(id, true); stream != nil {
-								go agent_request(domain, stream)
+								go AgentRequest(domain, stream)
 								stream.Queue(flags, data[:length-4])
 								return true
 							}
@@ -247,13 +250,13 @@ func (d *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Reque
 	if d.connecting || d.connected {
 		d.lock.Unlock()
 		response.WriteHeader(http.StatusNotFound)
-		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": d.Name, "remote": request.RemoteAddr, "error": "agent already connected"})
+		Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": d.Name, "remote": request.RemoteAddr, "error": "agent already connected"})
 		return
 	}
 	d.connecting = true
 	d.lock.Unlock()
 	if handled, _ := uws.Handle(response, request, &uws.Config{
-		Protocols:    []string{progname},
+		Protocols:    []string{PROGNAME},
 		NeedProtocol: true,
 		FragmentSize: 64 << 10,
 		ReadSize:     16 << 10,
@@ -265,7 +268,7 @@ func (d *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Reque
 			domain.connected = true
 			domain.agent = ws
 			domain.lock.Unlock()
-			logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "connect"})
+			Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "connect"})
 		},
 		CloseHandler: func(ws *uws.Socket, code int) {
 			domain := ws.Context.(*DOMAIN)
@@ -276,7 +279,7 @@ func (d *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Reque
 			}
 			domain.connected = false
 			domain.lock.Unlock()
-			logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "disconnect"})
+			Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "disconnect"})
 		},
 		MessageHandler: handler,
 		Context:        d,
@@ -285,7 +288,7 @@ func (d *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Reque
 		d.connecting = false
 		d.lock.Unlock()
 		response.WriteHeader(http.StatusNotFound)
-		logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": d.Name, "remote": request.RemoteAddr, "error": "websocket upgrade failed"})
+		Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": d.Name, "remote": request.RemoteAddr, "error": "websocket upgrade failed"})
 	}
 }
 
@@ -297,7 +300,7 @@ func (d *DOMAIN) Connect(handler func(*uws.Socket, int, []byte) bool) {
 		if _, err := uws.Dial(fmt.Sprintf("wss://%s%s", d.Remote, d.Service), "", &uws.Config{
 			Headers:      map[string]string{"Authorization": fmt.Sprintf("Bearer %s", d.Secret)},
 			TLSConfig:    &tls.Config{InsecureSkipVerify: d.Insecure},
-			Protocols:    []string{progname},
+			Protocols:    []string{PROGNAME},
 			FragmentSize: 64 << 10,
 			ReadSize:     16 << 10,
 			OpenHandler: func(ws *uws.Socket) {
@@ -307,7 +310,7 @@ func (d *DOMAIN) Connect(handler func(*uws.Socket, int, []byte) bool) {
 				domain.connected = true
 				domain.agent = ws
 				domain.lock.Unlock()
-				logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "connect"})
+				Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "connect"})
 			},
 			CloseHandler: func(ws *uws.Socket, code int) {
 				domain := ws.Context.(*DOMAIN)
@@ -318,7 +321,7 @@ func (d *DOMAIN) Connect(handler func(*uws.Socket, int, []byte) bool) {
 				}
 				domain.connected = false
 				domain.lock.Unlock()
-				logger.Info(map[string]interface{}{"mode": mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "disconnect"})
+				Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "disconnect"})
 			},
 			MessageHandler: handler,
 			Context:        d,
@@ -326,7 +329,7 @@ func (d *DOMAIN) Connect(handler func(*uws.Socket, int, []byte) bool) {
 			d.lock.Lock()
 			d.connecting = false
 			d.lock.Unlock()
-			logger.Warn(map[string]interface{}{"mode": mode, "event": "error", "domain": d.Name, "remote": d.Remote, "error": fmt.Sprintf("%v", err)})
+			Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": d.Name, "remote": d.Remote, "error": fmt.Sprintf("%v", err)})
 		}
 	} else {
 		d.lock.Unlock()
@@ -364,7 +367,7 @@ func (d *DOMAIN) Stream(id int, create bool) (stream *STREAM) {
 			if create {
 				stream = &STREAM{domain: d, id: id, queue: make(chan *FRAME, 256)}
 				d.streams[id] = stream
-				logger.Debug(map[string]interface{}{"mode": mode, "event": "stream", "domain": d.Name, "stream": id, "action": "activate"})
+				Logger.Debug(map[string]interface{}{"mode": Mode, "event": "stream", "domain": d.Name, "stream": id, "action": "activate"})
 			}
 		}
 	}

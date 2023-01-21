@@ -115,7 +115,7 @@ func (s *STREAM) Shutdown(abort bool, remove bool) {
 			delete(s.domain.streams, s.id)
 			s.domain.lock.Unlock()
 		}
-		logger.Debug(map[string]interface{}{"mode": mode, "event": "stream", "domain": s.domain.Name, "stream": s.id, "action": "shutdown"})
+		Logger.Debug(map[string]interface{}{"mode": Mode, "event": "stream", "domain": s.domain.Name, "stream": s.id, "action": "shutdown"})
 	} else {
 		s.lock.RUnlock()
 	}

@@ -17,20 +17,20 @@ import (
 	"github.com/pyke369/golang-support/uconfig"
 )
 
-func agent_run() {
-	domains.Update()
+func AgentRun() {
+	Domains.Update()
 	for range time.Tick(5 * time.Second) {
-		domains.Update()
+		Domains.Update()
 	}
 }
 
-func agent_request(domain *DOMAIN, stream *STREAM) {
+func AgentRequest(domain *DOMAIN, stream *STREAM) {
 	var (
 		request *http.Request
 		backend net.Conn
 	)
 
-	errored, timeout := 0, uconfig.Duration(config.GetDurationBounds(progname+"read_timeout", 10, 5, 60))
+	errored, timeout := 0, uconfig.Duration(Config.GetDurationBounds(PROGNAME+"read_timeout", 10, 5, 60))
 	for {
 		frame := stream.Read(timeout, nil)
 		if frame == nil {
@@ -61,7 +61,7 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 					parts.Host += ":80"
 				}
 			}
-			timeout := uconfig.Duration(config.GetDurationBounds(progname+".connect_timeout", 5, 5, 60))
+			timeout := uconfig.Duration(Config.GetDurationBounds(PROGNAME+".connect_timeout", 5, 5, 60))
 			if parts.Scheme == "https" {
 				if value, err := tls.DialWithDialer(&net.Dialer{Timeout: timeout}, "tcp", parts.Host, &tls.Config{InsecureSkipVerify: true}); err == nil {
 					backend = net.Conn(value)
@@ -107,7 +107,7 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 				errored = http.StatusBadRequest
 				break
 			}
-			backend.SetWriteDeadline(time.Now().Add(uconfig.Duration(config.GetDurationBounds(progname+".read_timeout", 10, 5, 60))))
+			backend.SetWriteDeadline(time.Now().Add(uconfig.Duration(Config.GetDurationBounds(PROGNAME+".read_timeout", 10, 5, 60))))
 			if _, err := backend.Write(headers); err != nil {
 				errored = http.StatusBadGateway
 				break
@@ -119,7 +119,7 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 
 		if frame.Flags&FLAG_BODY != 0 {
 			if frame.Data != nil && len(frame.Data) > 0 {
-				backend.SetWriteDeadline(time.Now().Add(uconfig.Duration(config.GetDurationBounds(progname+".read_timeout", 10, 5, 60))))
+				backend.SetWriteDeadline(time.Now().Add(uconfig.Duration(Config.GetDurationBounds(PROGNAME+".read_timeout", 10, 5, 60))))
 				_, err := backend.Write(frame.Data)
 				bslab.Put(frame.Data)
 				if err != nil {
@@ -140,7 +140,7 @@ func agent_request(domain *DOMAIN, stream *STREAM) {
 			backend.Close()
 		}
 	} else if backend != nil {
-		timeout := uconfig.Duration(config.GetDurationBounds(progname+".write_timeout", 20, 5, 60))
+		timeout := uconfig.Duration(Config.GetDurationBounds(PROGNAME+".write_timeout", 20, 5, 60))
 		backend.SetReadDeadline(time.Now().Add(timeout))
 		if response, err := http.ReadResponse(bufio.NewReader(backend), request); err == nil {
 			if headers, err := httputil.DumpResponse(response, false); err == nil {

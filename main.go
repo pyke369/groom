@@ -16,16 +16,17 @@ import (
 )
 
 const (
-	progname = "groom"
-	version  = "1.2.3"
+	PROGNAME = "groom"
+	VERSION  = "1.2.3"
 )
 
 var (
-	config           *uconfig.UConfig
-	logger, slogger  *ulog.ULog
-	mode             string
-	domains          = Domains()
-	instance, secret = uuid.BUUID(), uuid.BUUID()
+	Config           *uconfig.UConfig
+	Logger           *ulog.ULog
+	AccessLogger     *ulog.ULog
+	Mode             string
+	Domains          = NewDomains()
+	Instance, Secret = uuid.BUUID(), uuid.BUUID()
 )
 
 func main() {
@@ -68,20 +69,20 @@ func main() {
 		os.Exit(0)
 	}
 
-	if config, err = uconfig.New(os.Args[1]); err != nil {
+	if Config, err = uconfig.New(os.Args[1]); err != nil {
 		fmt.Fprintf(os.Stderr, "configuration syntax error: %v - aborting\n", err)
 		os.Exit(2)
 	}
-	slogger = ulog.New(config.GetString(progname+".log.access", ""))
-	mode = config.GetString(progname+".mode", "agent")
-	logger = ulog.New(config.GetString(progname+".log.system", "console(output=stdout)"))
-	logger.Info(map[string]interface{}{"mode": mode, "event": "start", "config": os.Args[1], "pid": os.Getpid(), "version": version})
+	AccessLogger = ulog.New(Config.GetString(PROGNAME+".log.access", ""))
+	Mode = Config.GetString(PROGNAME+".mode", "agent")
+	Logger = ulog.New(Config.GetString(PROGNAME+".log.system", "console(output=stdout)"))
+	Logger.Info(map[string]interface{}{"mode": Mode, "event": "start", "config": os.Args[1], "pid": os.Getpid(), "version": VERSION})
 
-	switch mode {
+	switch Mode {
 	case "server":
-		go server_run()
+		go ServerRun()
 	case "agent":
-		go agent_run()
+		go AgentRun()
 	default:
 		fmt.Fprintf(os.Stderr, "neither in server nor agent running mode - aborting\n")
 		os.Exit(3)
@@ -92,12 +93,12 @@ func main() {
 	for {
 		<-signals
 		if _, err = uconfig.New(os.Args[1]); err == nil {
-			config.Load(os.Args[1])
-			slogger.Load(config.GetString(progname+".log.access", ""))
-			logger.Load(config.GetString(progname+".log.system", "console(output=stdout)"))
-			logger.Info(map[string]interface{}{"mode": mode, "event": "reload", "config": os.Args[1], "pid": os.Getpid(), "version": version})
+			Config.Load(os.Args[1])
+			AccessLogger.Load(Config.GetString(PROGNAME+".log.access", ""))
+			Logger.Load(Config.GetString(PROGNAME+".log.system", "console(output=stdout)"))
+			Logger.Info(map[string]interface{}{"mode": Mode, "event": "reload", "config": os.Args[1], "pid": os.Getpid(), "version": VERSION})
 		} else {
-			logger.Info(map[string]interface{}{"mode": mode, "event": "reload", "config": os.Args[1], "error": fmt.Sprintf("%v", err)})
+			Logger.Info(map[string]interface{}{"mode": Mode, "event": "reload", "config": os.Args[1], "error": fmt.Sprintf("%v", err)})
 		}
 	}
 }
