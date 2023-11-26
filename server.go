@@ -18,16 +18,15 @@ import (
 	"github.com/pyke369/golang-support/bslab"
 	"github.com/pyke369/golang-support/dynacert"
 	"github.com/pyke369/golang-support/rcache"
-	"github.com/pyke369/golang-support/uconfig"
 	"github.com/pyke369/golang-support/uuid"
 	"github.com/pyke369/golang-support/uws"
 )
 
 func ServerRun() {
 	handler := http.NewServeMux()
-	handler.HandleFunc(strings.TrimSpace(Config.GetString(PROGNAME+".service", "/.well-known/"+PROGNAME+"-agent")), serverAgent)
+	handler.HandleFunc(strings.TrimSpace(Config.GetString(Config.Path(PROGNAME, "service"), "/.well-known/"+PROGNAME+"-agent")), serverAgent)
 	handler.HandleFunc("/", serverRequest)
-	for _, path := range Config.GetPaths(PROGNAME + ".listen") {
+	for _, path := range Config.GetPaths(Config.Path(PROGNAME, "listen")) {
 		if parts := strings.Split(Config.GetStringMatch(path, "_", `^.*?(:\d+)?((,[^,]+){1,2})?$`), ","); parts[0] != "_" && len(parts) > 1 {
 			parts[0], parts[1] = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 			certificates := &dynacert.DYNACERT{}
@@ -35,7 +34,7 @@ func ServerRun() {
 				certificates.Add("*", parts[1], strings.TrimSpace(parts[2]))
 			} else if matcher := rcache.Get(`^(\S+)\s+(\S+)\s+(\S+)$`); matcher != nil {
 				for _, path := range Config.GetPaths(parts[1]) {
-					if captures := matcher.FindStringSubmatch(strings.TrimSpace(Config.GetString(path, ""))); len(captures) > 3 {
+					if captures := matcher.FindStringSubmatch(strings.TrimSpace(Config.GetString(path))); len(captures) > 3 {
 						certificates.Add(captures[1], captures[2], captures[3])
 					}
 				}
@@ -44,10 +43,10 @@ func ServerRun() {
 				Handler:           handler,
 				Addr:              strings.TrimLeft(parts[0], "*"),
 				ErrorLog:          log.New(io.Discard, "", 0),
-				MaxHeaderBytes:    int(Config.GetSizeBounds(PROGNAME+".headers_size", 64<<10, 1<<10, 1<<20)),
-				IdleTimeout:       uconfig.Duration(Config.GetDurationBounds(PROGNAME+".idle_timeout", 15, 5, 60)),
-				ReadHeaderTimeout: uconfig.Duration(Config.GetDurationBounds(PROGNAME+".read_timeout", 10, 5, 60)),
-				ReadTimeout:       uconfig.Duration(Config.GetDurationBounds(PROGNAME+".read_timeout", 60, 5, 60)),
+				MaxHeaderBytes:    int(Config.GetSizeBounds(Config.Path(PROGNAME, "headers_size"), 64<<10, 1<<10, 1<<20)),
+				IdleTimeout:       Config.GetDurationBounds(Config.Path(PROGNAME, "idle_timeout"), 15, 5, 60),
+				ReadHeaderTimeout: Config.GetDurationBounds(Config.Path(PROGNAME, "read_timeout"), 10, 5, 60),
+				ReadTimeout:       Config.GetDurationBounds(Config.Path(PROGNAME, "read_timeout"), 60, 5, 60),
 				TLSConfig:         dynacert.IntermediateTLSConfig(certificates.GetCertificate),
 				TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
 			}
@@ -71,7 +70,7 @@ func serverAgent(response http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		name = request.Host
 	}
-	secret, unavailable := "", int(Config.GetIntegerBounds(PROGNAME+".unavailable", http.StatusNotFound, 200, 999))
+	secret, unavailable := "", int(Config.GetIntegerBounds(Config.Path(PROGNAME, "unavailable"), http.StatusNotFound, 200, 999))
 	if header := request.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") && len(header) >= 8 {
 		secret = strings.TrimSpace(header[7:])
 	}
@@ -91,12 +90,12 @@ func serverAgent(response http.ResponseWriter, request *http.Request) {
 		Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "inactive domain"})
 		return
 	}
-	if domain.Secret == "" || !acl.Password(secret, []string{domain.Secret}) {
+	if match, _ := acl.Password(secret, []string{domain.Secret}, false); !match || domain.Secret == "" {
 		response.WriteHeader(unavailable)
 		Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "invalid agent authentication"})
 		return
 	}
-	if !acl.CIDR(request.RemoteAddr, domain.Sources) {
+	if ok, _ := acl.CIDR(request.RemoteAddr, domain.Sources, true); !ok {
 		response.WriteHeader(unavailable)
 		Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": name, "remote": request.RemoteAddr, "error": "agent connection from unauthorized network"})
 		return
@@ -165,13 +164,13 @@ func serverRequest(response http.ResponseWriter, request *http.Request) {
 	}
 
 	start, id, in, out, domain := time.Now(), uuid.UUID(), 0, 52, Domains.Get(name)
-	unavailable := int(Config.GetIntegerBounds(PROGNAME+".unavailable", http.StatusNotFound, 200, 999))
+	unavailable := int(Config.GetIntegerBounds(Config.Path(PROGNAME, "unavailable"), http.StatusNotFound, 200, 999))
 	if headers, err := httputil.DumpRequest(request, false); err == nil {
 		in = len(headers)
 	}
 	if domain == nil || !domain.IsConnected() {
 		response.WriteHeader(unavailable)
-		if Config.GetBoolean(PROGNAME+".log.disconnected", false) {
+		if Config.GetBoolean(Config.Path(PROGNAME, "log", "disconnected"), false) {
 			serverLog(start, "disconnected domain", name, id, request, http.StatusNotFound, in, out)
 		}
 		return
@@ -190,13 +189,13 @@ func serverRequest(response http.ResponseWriter, request *http.Request) {
 		}
 	}
 
-	if !acl.CIDR(request.RemoteAddr, domain.Networks) {
+	if ok, _ := acl.CIDR(request.RemoteAddr, domain.Networks, true); !ok {
 		response.WriteHeader(unavailable)
 		serverLog(start, "unauthorized network", name, id, request, http.StatusForbidden, in, out)
 		return
 	}
 
-	if !acl.Ranges(time.Now(), domain.Ranges) {
+	if ok, _ := acl.Ranges(time.Now(), domain.Ranges, true); !ok {
 		response.WriteHeader(unavailable)
 		serverLog(start, "unauthorized timerange", name, id, request, http.StatusForbidden, in, out)
 		return
@@ -206,7 +205,7 @@ func serverRequest(response http.ResponseWriter, request *http.Request) {
 		cookie, seal := fmt.Sprintf("%s%x", PROGNAME, Instance[:4]), fmt.Sprintf("%x", sha1.Sum(append(append(Secret, Instance...), []byte(name)...)))
 		if value, _ := request.Cookie(cookie); value == nil || value.Value != seal {
 			login, password, _ := request.BasicAuth()
-			if !acl.Password(fmt.Sprintf("%s:%s", login, password), domain.Credentials) {
+			if match, _ := acl.Password(fmt.Sprintf("%s:%s", login, password), domain.Credentials, false); !match {
 				response.Header().Set("WWW-Authenticate", fmt.Sprintf(`Basic realm="%s"`, domain.Banner))
 				response.WriteHeader(http.StatusUnauthorized)
 				return
@@ -232,7 +231,7 @@ func serverRequest(response http.ResponseWriter, request *http.Request) {
 	}
 
 	remote, _, _ := net.SplitHostPort(request.RemoteAddr)
-	if len(domain.Forward) > 0 && acl.CIDR(request.RemoteAddr, domain.Forward) {
+	if ok, _ := acl.CIDR(request.RemoteAddr, domain.Forward, false); ok {
 		if value := request.Header.Get("X-Forwarded-For"); value != "" {
 			remote = value
 		}
@@ -289,7 +288,7 @@ func serverRequest(response http.ResponseWriter, request *http.Request) {
 				response.WriteHeader(http.StatusBadGateway)
 				serverLog(start, fmt.Sprintf("%v", errored), name, id, request, http.StatusBadGateway, in, out)
 			} else {
-				upgraded, timeout, status := false, uconfig.Duration(Config.GetDurationBounds(PROGNAME+".write_timeout", 20, 5, 60)), 0
+				upgraded, timeout, status := false, Config.GetDurationBounds(Config.Path(PROGNAME, "write_timeout"), 20, 5, 60), 0
 				for {
 					frame := stream.Read(timeout, request.Context())
 					if frame == nil {

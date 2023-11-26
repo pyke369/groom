@@ -69,7 +69,7 @@ func NewDomains() *DOMAINS {
 }
 
 func (d *DOMAINS) Update() {
-	root := Config.GetString(PROGNAME+".domains", "/etc/"+PROGNAME+"/domains")
+	root := Config.GetString(Config.Path(PROGNAME, "domains"), "/etc/"+PROGNAME+"/domains")
 	if entries, err := os.ReadDir(root); err == nil {
 		for _, entry := range entries {
 			name, modified := entry.Name(), time.Now()
@@ -96,52 +96,52 @@ func (d *DOMAINS) Update() {
 					if domain.hash != hash {
 						domain.hash = hash
 						domain.lock.Lock()
-						domain.active = dconfig.GetBoolean(PROGNAME+".active", false)
+						domain.active = dconfig.GetBoolean(dconfig.Path(PROGNAME, "active"))
 						domain.lock.Unlock()
-						domain.Secret = strings.TrimSpace(dconfig.GetString(PROGNAME+".secret", ""))
-						domain.Concurrency = int(dconfig.GetIntegerBounds(PROGNAME+".concurrency", 20, 3, 1000))
-						domain.Size = int(dconfig.GetSizeBounds(PROGNAME+".body_size", Config.GetSizeBounds(PROGNAME+".body_size", 8<<20, 64<<10, 1<<30), 64<<10, 1<<30))
-						domain.Transaction = dconfig.GetBoolean(PROGNAME+".transaction", Config.GetBoolean(PROGNAME+".transaction", true))
+						domain.Secret = strings.TrimSpace(dconfig.GetString(dconfig.Path(PROGNAME, "secret")))
+						domain.Concurrency = int(dconfig.GetIntegerBounds(dconfig.Path(PROGNAME, "concurrency"), 20, 3, 1000))
+						domain.Size = int(dconfig.GetSizeBounds(dconfig.Path(PROGNAME, "body_size"), Config.GetSizeBounds(Config.Path(PROGNAME, "body_size"), 8<<20, 64<<10, 1<<30), 64<<10, 1<<30))
+						domain.Transaction = dconfig.GetBoolean(dconfig.Path(PROGNAME, "transaction"), Config.GetBoolean(Config.Path(PROGNAME, "transaction"), true))
 
 						if Mode == "server" {
 							domain.Sources, domain.Forward, domain.Networks, domain.Ranges, domain.Credentials = []string{}, []string{}, []string{}, []string{}, []string{}
-							for _, path := range dconfig.GetPaths(PROGNAME + ".forward") {
-								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+							for _, path := range dconfig.GetPaths(Config.Path(PROGNAME, "forward")) {
+								if value := strings.TrimSpace(dconfig.GetString(path)); value != "" {
 									domain.Forward = append(domain.Forward, value)
 								}
 							}
-							for _, path := range dconfig.GetPaths(PROGNAME + ".networks") {
-								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+							for _, path := range dconfig.GetPaths(dconfig.Path(PROGNAME, "networks")) {
+								if value := strings.TrimSpace(dconfig.GetString(path)); value != "" {
 									domain.Sources = append(domain.Sources, value)
 								}
 							}
-							for _, path := range dconfig.GetPaths(PROGNAME + ".clients.networks") {
-								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+							for _, path := range dconfig.GetPaths(dconfig.Path(PROGNAME, "clients", "networks")) {
+								if value := strings.TrimSpace(dconfig.GetString(path)); value != "" {
 									domain.Networks = append(domain.Networks, value)
 								}
 							}
-							for _, path := range dconfig.GetPaths(PROGNAME + ".clients.ranges") {
-								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+							for _, path := range dconfig.GetPaths(dconfig.Path(PROGNAME, "clients", "ranges")) {
+								if value := strings.TrimSpace(dconfig.GetString(path)); value != "" {
 									domain.Ranges = append(domain.Ranges, value)
 								}
 							}
-							for _, path := range dconfig.GetPaths(PROGNAME + ".clients.credentials") {
-								if value := strings.TrimSpace(dconfig.GetString(path, "")); value != "" {
+							for _, path := range dconfig.GetPaths(dconfig.Path(PROGNAME, "clients", "credentials")) {
+								if value := strings.TrimSpace(dconfig.GetString(path)); value != "" {
 									domain.Credentials = append(domain.Credentials, value)
 								}
 							}
-							domain.Concurrency = int(dconfig.GetIntegerBounds(PROGNAME+".concurrency", 20, 3, 1000))
-							domain.Banner = strings.TrimSpace(dconfig.GetString(PROGNAME+".clients.banner", PROGNAME))
+							domain.Concurrency = int(dconfig.GetIntegerBounds(dconfig.Path(PROGNAME, "concurrency"), 20, 3, 1000))
+							domain.Banner = strings.TrimSpace(dconfig.GetString(dconfig.Path(PROGNAME, "clients", "banner"), PROGNAME))
 						}
 
 						if Mode == "agent" {
-							domain.Remote = strings.TrimSpace(dconfig.GetString(PROGNAME+".remote", name+":443"))
-							domain.Service = strings.TrimSpace(dconfig.GetString(PROGNAME+".service", "/.well-known/"+PROGNAME+"-agent"))
-							domain.Insecure = dconfig.GetBoolean(PROGNAME+".insecure", false)
+							domain.Remote = strings.TrimSpace(dconfig.GetString(dconfig.Path(PROGNAME, "remote"), name+":443"))
+							domain.Service = strings.TrimSpace(dconfig.GetString(dconfig.Path(PROGNAME, "service"), "/.well-known/"+PROGNAME+"-agent"))
+							domain.Insecure = dconfig.GetBoolean(dconfig.Path(PROGNAME, "insecure"))
 							targets := []*TARGET{}
-							for _, path := range dconfig.GetPaths(PROGNAME + ".targets.active") {
-								name := dconfig.GetString(path, "")
-								if value := strings.TrimSpace(dconfig.GetString(PROGNAME+".targets."+name+".target", "")); value != "" {
+							for _, path := range dconfig.GetPaths(dconfig.Path(PROGNAME, "targets", "active")) {
+								name := dconfig.GetString(path)
+								if value := strings.TrimSpace(dconfig.GetString(dconfig.Path(PROGNAME, "targets", name, "target"))); value != "" {
 									if captures := rcache.Get(`^(https?://)([^/]+)(.*)$`).FindStringSubmatch(value); captures != nil {
 										hosts, weights := []*HOST{}, 0
 										for _, host := range strings.Split(captures[2], "|") {
@@ -158,15 +158,15 @@ func (d *DOMAINS) Update() {
 										}
 										if len(hosts) != 0 {
 											target := &TARGET{protocol: captures[1], hosts: hosts, weights: weights, path: strings.TrimSpace(captures[3])}
-											target.host = strings.ToLower(strings.TrimSpace(dconfig.GetString(PROGNAME+".targets."+name+".host", "target")))
-											if value := strings.TrimSpace(strings.ToUpper(dconfig.GetString(PROGNAME+".targets."+name+".method", ""))); value != "" {
+											target.host = strings.ToLower(strings.TrimSpace(dconfig.GetString(dconfig.Path(PROGNAME, "targets", name, "host"), "target")))
+											if value := strings.TrimSpace(strings.ToUpper(dconfig.GetString(dconfig.Path(PROGNAME, "targets", name, "method")))); value != "" {
 												if matcher := rcache.Get(value); matcher != nil {
 													target.rmethod = matcher
 												} else {
 													continue
 												}
 											}
-											if value := strings.TrimSpace(dconfig.GetString(PROGNAME+".targets."+name+".path", "")); value != "" {
+											if value := strings.TrimSpace(dconfig.GetString(dconfig.Path(PROGNAME, "targets", name, "path"))); value != "" {
 												if matcher := rcache.Get(value); matcher != nil {
 													target.rpath = matcher
 												} else {

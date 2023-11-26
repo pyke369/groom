@@ -1,6 +1,6 @@
-github.com/pyke369/golang-support v0.0.0-20230108182845-9fe2fa61d8f6 h1:F76ajQ+Rq3bLrUZnBYdAJ20MjQRQk0HLMjHtvgJJu/U=
-github.com/pyke369/golang-support v0.0.0-20230108182845-9fe2fa61d8f6/go.mod h1:86DUae4wbzSq5Zaoh8ufyM0br8ZEm8o5QrmEiOqg7eM=
-golang.org/x/net v0.5.0 h1:GyT4nK/YDHSqa1c4753ouYCDajOYKTja9Xb/OHtgvSw=
-golang.org/x/net v0.5.0/go.mod h1:DivGGAXEgPSlEBzxGzZI+ZLohi+xUj054jfeKui00ws=
-golang.org/x/text v0.6.0 h1:3XmdazWV+ubf7QgHSTWeykHOci5oeekaGJBLkrkaw4k=
-golang.org/x/text v0.6.0/go.mod h1:mrYo+phRRbMaCq/xk9113O4dZlRixOauAjOtrjsXDZ8=
+github.com/pyke369/golang-support v0.0.0-20231112163947-ff7c18596096 h1:Nyi3FoyXqAre6ciqcG5to+hbu145HdYEQljA0lznr/U=
+github.com/pyke369/golang-support v0.0.0-20231112163947-ff7c18596096/go.mod h1:851u6g/3itVw+DBjbypRl7zzpXig+I4g2ndBiwsUUm8=
+golang.org/x/net v0.18.0 h1:mIYleuAkSbHh0tCv7RvjL3F6ZVbLjq4+R7zbOn3Kokg=
+golang.org/x/net v0.18.0/go.mod h1:/czyP5RqHAH4odGYxBJ1qz0+CE5WZ+2j1YgoEo8F2jQ=
+golang.org/x/text v0.14.0 h1:ScX5w1eTa3QqT8oi6+ziP7dTV1S2+ALU0bI+0zXKWiQ=
+golang.org/x/text v0.14.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=

@@ -5,7 +5,7 @@ After=network.target
 [Service]
 StandardOutput=null
 StandardError=journal
-LimitNOFILE=65536
+LimitNOFILE=16384
 ExecStart=/usr/bin/groom /etc/groom/groom.conf
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always

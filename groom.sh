@@ -1,3 +1,3 @@
 #!/bin/sh
 
-$(dirname $0)/groom-$(uname -s |tr '[:upper:]' '[:lower:]') $@
+exec $(dirname $0)/groom-$(uname -s |tr '[:upper:]' '[:lower:]')-$(uname -m) $@

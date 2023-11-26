@@ -88,7 +88,7 @@ your machine. Then just invoke the following commands to build everything from s
 git clone https://github.com/pyke369/groom   # fetches the groom source code
 cd groom
 make portable                                # generates the groom.zip archive in the current folder
-make deb                                     # generates the groom_<revision>_amd64.deb debian package in the parent folder
+make deb                                     # generates the groom_<revision>_<arch>.deb debian package in the parent folder
 ```
 
 (the `devscripts`, `debhelper` and `dh-exec` packages are needed for the last part)
@@ -97,70 +97,58 @@ Example:
 ```
 $ git clone https://github.com/pyke369/groom
 Cloning into 'groom'...
-Receiving objects: 100% (39/39), 196.02 KiB | 225.00 KiB/s, done.
-Resolving deltas: 100% (1/1), done.
 
 $ cd groom
 
 $ make portable
-                       Ultimate Packer for eXecutables
-        File size         Ratio      Format      Name
-   --------------------   ------   -----------   -----------
-   5964664 ->   2310752   38.74%   linux/amd64   groom-linux
-
-Packed 1 file.
-                       Ultimate Packer for eXecutables
-        File size         Ratio      Format      Name
-   --------------------   ------   -----------   -----------
-   8325632 ->   4414976   53.03%    win64/pe     groom.exe
-
-Packed 1 file.
+- linux amd64
+- linux arm64
+- macos amd64
+- macos arm64
+- windows amd64
   adding: groom/ (stored 0%)
-  adding: groom/conf/ (stored 0%)
-  adding: groom/conf/agent.conf (deflated 44%)
-  adding: groom/conf/server/ (stored 0%)
-  adding: groom/conf/server/www.domain.com (deflated 49%)
-  adding: groom/conf/server.conf (deflated 54%)
-  adding: groom/conf/agent/ (stored 0%)
-  adding: groom/conf/agent/www.domain.com (deflated 54%)
-  adding: groom/groom-darwin (deflated 48%)
-  adding: groom/groom-linux (deflated 2%)
-  adding: groom/groom (deflated 9%)
   adding: groom/groom.exe (deflated 2%)
+  adding: groom/groom-linux-x86_64 (deflated 2%)
+  adding: groom/conf/ (stored 0%)
+  adding: groom/conf/agent.conf (deflated 43%)
+  adding: groom/conf/agent/ (stored 0%)
+  adding: groom/conf/agent/www.domain.com (deflated 55%)
+  adding: groom/conf/server/ (stored 0%)
+  adding: groom/conf/server/www.domain.com (deflated 51%)
+  adding: groom/conf/server.conf (deflated 53%)
+  adding: groom/groom-darwin-arm64 (deflated 45%)
+  adding: groom/groom-linux-aarch64 (deflated 3%)
+  adding: groom/groom (deflated 16%)
+  adding: groom/groom-darwin-amd64 (deflated 1%)
 
 $ ls -al groom.zip
--rw-r--r-- 1 nobody nogroup 10899128 Jul 28 17:33 groom.zip
+-rw-r--r-- 1 nobody nogroup 22694048 Nov 26 15:44 groom.zip
 
 $ make deb
- dpkg-buildpackage -rfakeroot -us -uc -ui -i -b
+dpkg-buildpackage -us -uc -ui -i -b
 dpkg-buildpackage: info: source package groom
-dpkg-buildpackage: info: source version 1.2.0
+dpkg-buildpackage: info: source version 1.3.0
 dpkg-buildpackage: info: source distribution stable
- dpkg-source -i --before-build groom
-dpkg-buildpackage: info: host architecture amd64
- fakeroot debian/rules clean
+dpkg-source -i --before-build .
+dpkg-buildpackage: info: host architecture arm64
+fakeroot debian/rules clean
 dh clean --with systemd
    dh_auto_clean
-	make -j1 distclean
    dh_clean
- debian/rules build
+debian/rules build
 dh build --with systemd
    dh_update_autotools_config
+   dh_autoreconf
    dh_auto_configure
    dh_auto_build
-	make -j1
-                       Ultimate Packer for eXecutables
-        File size         Ratio      Format      Name
-   --------------------   ------   -----------   -----------
-   5964664 ->   2310752   38.74%   linux/amd64   groom
-
-Packed 1 file.
+   make -j1
    dh_auto_test
- fakeroot debian/rules binary
+   create-stamp debian/debhelper-build-stamp
+fakeroot debian/rules binary
 dh binary --with systemd
    dh_testroot
    dh_prep
-   dh_auto_install
+   dh_auto_install --destdir=debian/groom/
    dh_install
    dh_installdocs
    dh_installchangelogs
@@ -180,34 +168,36 @@ dh_systemd_start --no-start
    dh_gencontrol
    dh_md5sums
    dh_builddeb
-dpkg-deb: building package 'groom' in '../groom_1.2.0_amd64.deb'.
- dpkg-genbuildinfo --build=binary
- dpkg-genchanges --build=binary >../groom_1.2.0_amd64.changes
-dpkg-genchanges: info: binary-only upload (no source code included)
- dpkg-source -i --after-build groom
+dpkg-deb: building package 'groom' in '../groom_1.3.0_arm64.deb'.
+dpkg-genbuildinfo --build=binary -O../groom_1.3.0_arm64.buildinfo
+dpkg-genchanges --build=binary -O../groom_1.3.0_arm64.changes
+pkg-genchanges: info: binary-only upload (no source code included)
+dpkg-source -i --after-build .
 dpkg-buildpackage: info: binary-only upload (no source included)
 
-$ ls -al ../groom_1.2.0_amd64.deb
--rw-r--r-- 1 nobody nogroup 2268276 Jul 28 17:34 ../groom_1.2.0_amd64.deb
+$ ls -al ../groom_1.3.0_arm64.deb
+-rw-r--r-- 1 nobody nogroup 2070908 Nov 26 15:46 ../groom_1.3.0_arm64.deb
 ```
 
 Once downloaded, you can unzip the universal binary archive anywhere and start using `groom` right-away without installing anything
 beforehand (hence the "portable/universal" qualifier):
 ```
-$ unzip /mnt/hgfs/Downloads/groom_1.2.0.zip
-Archive:  /mnt/hgfs/Downloads/groom_1.2.0.zip
+$ unzip groom_1.3.0.zip
+Archive:  groom_1.3.0.zip
    creating: groom/
-  inflating: groom/groom-darwin
   inflating: groom/groom.exe
+  inflating: groom/groom-linux-x86_64
    creating: groom/conf/
-   creating: groom/conf/server/
-  inflating: groom/conf/server/www.domain.com
   inflating: groom/conf/agent.conf
-  inflating: groom/conf/server.conf
    creating: groom/conf/agent/
   inflating: groom/conf/agent/www.domain.com
+   creating: groom/conf/server/
+  inflating: groom/conf/server/www.domain.com
+  inflating: groom/conf/server.conf
+  inflating: groom/groom-darwin-arm64
+  inflating: groom/groom-linux-aarch64
   inflating: groom/groom
-  inflating: groom/groom-linux
+  inflating: groom/groom-darwin-amd64
 
 $ cd groom
 
@@ -215,20 +205,20 @@ $ ./groom
 usage: groom <configuration> | password [<secret> [<salt>]]
 
 $ ./groom conf/agent.conf
-2019-07-28 18:15:29 INFO {"config":"conf/agent.conf","event":"start","mode":"agent","pid":127857,"version":"1.2.0"}
+2023-11-26 15:51:09 INFO {"config":"conf/agent.conf","event":"start","mode":"agent","pid":21705,"version":"1.3.0"}
 
 PS C:\groom> .\groom .\conf\agent.conf
-2019-07-28 18:42:37 INFO {"config":".\\conf\\agent.conf","event":"start","mode":"agent","pid":6328,"version":"1.2.0"}
+2023-11-26 15:51:09 INFO {"config":"conf/agent.conf","event":"start","mode":"agent","pid":8731,"version":"1.3.0"}
 ```
 We recommend adding the current folder to your PATH environment variable to allow starting `groom` from anywhere.
 
 On a `groom` server instance, you may alternatively deploy the Debian package with the following command:
 ```
-# dpkg -i groom_1.2.0_amd64.deb
+# dpkg -i groom_1.3.0_arm64.deb
 Selecting previously unselected package groom.
-Preparing to unpack groom_1.2.0_amd64.deb ...
-Unpacking groom (1.2.0) ...
-Setting up groom (1.2.0) ...
+Preparing to unpack groom_1.3.0_arm64.deb ...
+Unpacking groom (1.3.0) ...
+Setting up groom (1.3.0) ...
 ```
 
 Note that the `groom` server does not start right away, and that the corresponding systemd service is not enabled by default

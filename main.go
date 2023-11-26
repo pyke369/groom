@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/pyke369/golang-support/acl"
@@ -17,7 +16,7 @@ import (
 
 const (
 	PROGNAME = "groom"
-	VERSION  = "1.2.3"
+	VERSION  = "1.3.0"
 )
 
 var (
@@ -33,7 +32,7 @@ func main() {
 	var err error
 
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s <configuration> | password [<secret> [<salt>]]\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "usage: %s <configuration> | password [<secret> [<salt>]]\n", PROGNAME)
 		os.Exit(1)
 	}
 
@@ -73,9 +72,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "configuration syntax error: %v - aborting\n", err)
 		os.Exit(2)
 	}
-	AccessLogger = ulog.New(Config.GetString(PROGNAME+".log.access", ""))
-	Mode = Config.GetString(PROGNAME+".mode", "agent")
-	Logger = ulog.New(Config.GetString(PROGNAME+".log.system", "console(output=stdout)"))
+	AccessLogger = ulog.New(Config.GetString(Config.Path(PROGNAME, "log", "access")))
+	Mode = Config.GetString(Config.Path(PROGNAME, "mode"), "agent")
+	Logger = ulog.New(Config.GetString(Config.Path(PROGNAME, "log", "system"), "console(output=stdout)"))
 	Logger.Info(map[string]interface{}{"mode": Mode, "event": "start", "config": os.Args[1], "pid": os.Getpid(), "version": VERSION})
 
 	switch Mode {
@@ -94,8 +93,8 @@ func main() {
 		<-signals
 		if _, err = uconfig.New(os.Args[1]); err == nil {
 			Config.Load(os.Args[1])
-			AccessLogger.Load(Config.GetString(PROGNAME+".log.access", ""))
-			Logger.Load(Config.GetString(PROGNAME+".log.system", "console(output=stdout)"))
+			AccessLogger.Load(Config.GetString(Config.Path(PROGNAME, "log", "access")))
+			Logger.Load(Config.GetString(Config.Path(PROGNAME, "log", "system"), "console(output=stdout)"))
 			Logger.Info(map[string]interface{}{"mode": Mode, "event": "reload", "config": os.Args[1], "pid": os.Getpid(), "version": VERSION})
 		} else {
 			Logger.Info(map[string]interface{}{"mode": Mode, "event": "reload", "config": os.Args[1], "error": fmt.Sprintf("%v", err)})
