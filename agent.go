@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -93,7 +92,7 @@ func AgentRequest(domain *DOMAIN, stream *STREAM) {
 				if query != "" {
 					separator = "?"
 				}
-				request.URL, _ = url.ParseRequestURI(fmt.Sprintf("%s%s%s", parts.Path, separator, query))
+				request.URL, _ = url.ParseRequestURI(parts.Path + separator + query)
 				request.RequestURI = request.URL.String()
 			}
 			if strings.ToLower(request.Header.Get("Connection")) != "upgrade" {
@@ -109,9 +108,6 @@ func AgentRequest(domain *DOMAIN, stream *STREAM) {
 			backend.SetWriteDeadline(time.Now().Add(Config.GetDurationBounds(Config.Path(PROGNAME, "read_timeout"), 10, 5, 60)))
 			if _, err := backend.Write(headers); err != nil {
 				errored = http.StatusBadGateway
-				break
-			}
-			if frame.Flags&FLAG_END != 0 {
 				break
 			}
 		}

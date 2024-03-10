@@ -47,7 +47,7 @@ func ServerRun() {
 				IdleTimeout:       Config.GetDurationBounds(Config.Path(PROGNAME, "idle_timeout"), 15, 5, 60),
 				ReadHeaderTimeout: Config.GetDurationBounds(Config.Path(PROGNAME, "read_timeout"), 10, 5, 60),
 				ReadTimeout:       Config.GetDurationBounds(Config.Path(PROGNAME, "read_timeout"), 60, 5, 60),
-				TLSConfig:         dynacert.IntermediateTLSConfig(certificates.GetCertificate),
+				TLSConfig:         certificates.TLSConfig(),
 				TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
 			}
 			go func(server *http.Server, parts []string) {
@@ -128,7 +128,7 @@ func serverLog(start time.Time, reason, domain, id string, request *http.Request
 		"status":   status,
 		"in":       in,
 		"out":      out,
-		"duration": fmt.Sprintf("%v", time.Since(start).Round(time.Microsecond)),
+		"duration": time.Since(start) / time.Microsecond,
 	}
 	if reason != "" {
 		info["reason"] = reason
@@ -146,7 +146,7 @@ func serverLog(start time.Time, reason, domain, id string, request *http.Request
 	}
 	if matcher := rcache.Get(`^bytes=(\d+)?-(\d+)?$`); matcher != nil {
 		if captures := matcher.FindStringSubmatch(strings.TrimSpace(request.Header.Get("Range"))); len(captures) == 3 {
-			info["range"] = fmt.Sprintf("%s-%s", captures[1], captures[2])
+			info["range"] = captures[1] + "-" + captures[2]
 		}
 	}
 	AccessLogger.Info(info)
@@ -170,23 +170,10 @@ func serverRequest(response http.ResponseWriter, request *http.Request) {
 	}
 	if domain == nil || !domain.IsConnected() {
 		response.WriteHeader(unavailable)
-		if Config.GetBoolean(Config.Path(PROGNAME, "log", "disconnected"), false) {
+		if Config.GetBoolean(Config.Path(PROGNAME, "log", "disconnected")) {
 			serverLog(start, "disconnected domain", name, id, request, http.StatusNotFound, in, out)
 		}
 		return
-	}
-
-	if request.Method == http.MethodPost || request.Method == http.MethodPut {
-		if request.ContentLength < 0 {
-			response.WriteHeader(http.StatusLengthRequired)
-			serverLog(start, "missing content length", name, id, request, http.StatusLengthRequired, in, out)
-			return
-		}
-		if int(request.ContentLength) >= domain.Size {
-			response.WriteHeader(http.StatusRequestEntityTooLarge)
-			serverLog(start, "request too large", name, id, request, http.StatusRequestEntityTooLarge, int(request.ContentLength), out)
-			return
-		}
 	}
 
 	if ok, _ := acl.CIDR(request.RemoteAddr, domain.Networks, true); !ok {
@@ -194,19 +181,17 @@ func serverRequest(response http.ResponseWriter, request *http.Request) {
 		serverLog(start, "unauthorized network", name, id, request, http.StatusForbidden, in, out)
 		return
 	}
-
 	if ok, _ := acl.Ranges(time.Now(), domain.Ranges, true); !ok {
 		response.WriteHeader(unavailable)
 		serverLog(start, "unauthorized timerange", name, id, request, http.StatusForbidden, in, out)
 		return
 	}
-
 	if len(domain.Credentials) != 0 {
 		cookie, seal := fmt.Sprintf("%s%x", PROGNAME, Instance[:4]), fmt.Sprintf("%x", sha1.Sum(append(append(Secret, Instance...), []byte(name)...)))
 		if value, _ := request.Cookie(cookie); value == nil || value.Value != seal {
 			login, password, _ := request.BasicAuth()
-			if match, _ := acl.Password(fmt.Sprintf("%s:%s", login, password), domain.Credentials, false); !match {
-				response.Header().Set("WWW-Authenticate", fmt.Sprintf(`Basic realm="%s"`, domain.Banner))
+			if match, _ := acl.Password(login+":"+password, domain.Credentials, false); !match {
+				response.Header().Set("WWW-Authenticate", `Basic realm="`+domain.Banner+`"`)
 				response.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -250,43 +235,49 @@ func serverRequest(response http.ResponseWriter, request *http.Request) {
 		if headers, err := httputil.DumpRequest(request, false); err == nil {
 			var errored error
 
-			head, data := false, bslab.Get(64<<10, nil)
+			head, body, data, chunked := false, 0, bslab.Get(64<<10, nil), bytes.Contains(headers, []byte("Transfer-Encoding: chunked"))
+			data = data[:cap(data)]
 			for {
-				data = data[:cap(data)-4]
-				read, err := request.Body.Read(data)
-				if read >= 0 {
-					if !head {
-						head = true
-						if err := stream.Write(FLAG_HEAD|FLAG_START, headers); err != nil {
-							errored = err
-							break
-						}
-					}
-					in += read
-					data = data[:read]
-					flags := FLAG_BODY
-					if read == 0 || err != nil {
-						flags |= FLAG_END
-					}
-					if err := stream.Write(flags, data); err != nil {
+				read, err := request.Body.Read(data[6 : cap(data)-2-4])
+
+				if !head {
+					head = true
+					if err := stream.Write(FLAG_START|FLAG_HEAD, headers); err != nil {
 						errored = err
 						break
 					}
 				}
-				if err != nil {
-					break
+				if read > 0 {
+					in += read
+					body += read
+					// TODO check body < domain.Size
+					dstart, dend := 6, 6+read
+					if chunked {
+						hsize := fmt.Sprintf("%x\r\n", read)
+						dstart -= len(hsize)
+						copy(data[dstart:], []byte(hsize))
+						copy(data[dend:], []byte("\r\n"))
+						dend += 2
+					}
+					if err := stream.Write(FLAG_BODY, data[dstart:dend]); err != nil {
+						errored = err
+						break
+					}
 				}
-			}
-			if !head {
-				if err := stream.Write(FLAG_HEAD|FLAG_START|FLAG_END, headers); err != nil {
-					errored = err
+				if read == 0 || err != nil {
+					if chunked {
+						errored = stream.Write(FLAG_BODY|FLAG_END, []byte("0\r\n\r\n"))
+					} else {
+						errored = stream.Write(FLAG_BODY|FLAG_END, nil)
+					}
+					break
 				}
 			}
 
 			if errored != nil {
 				stream.Shutdown(true, true)
 				response.WriteHeader(http.StatusBadGateway)
-				serverLog(start, fmt.Sprintf("%v", errored), name, id, request, http.StatusBadGateway, in, out)
+				serverLog(start, errored.Error(), name, id, request, http.StatusBadGateway, in, out)
 			} else {
 				upgraded, timeout, status := false, Config.GetDurationBounds(Config.Path(PROGNAME, "write_timeout"), 20, 5, 60), 0
 				for {

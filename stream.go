@@ -9,6 +9,8 @@ import (
 
 	"github.com/pyke369/golang-support/bslab"
 	"github.com/pyke369/golang-support/uws"
+
+	_ "encoding/hex"
 )
 
 const (
@@ -28,29 +30,29 @@ type FRAME struct {
 type STREAM struct {
 	domain *DOMAIN
 	id     int
-	lock   sync.RWMutex
-	shut   bool
-	queue  chan *FRAME
+	sync.RWMutex
+	shut  bool
+	queue chan *FRAME
 }
 
 func (s *STREAM) Queue(flags int, data []byte) (err error) {
-	s.lock.RLock()
+	s.RLock()
 	if !s.shut {
 		s.queue <- &FRAME{flags, data}
 	} else {
 		err = fmt.Errorf("shut")
 	}
-	s.lock.RUnlock()
+	s.RUnlock()
 	return
 }
 
 func (s *STREAM) Read(timeout time.Duration, ctx context.Context) (frame *FRAME) {
-	s.lock.RLock()
+	s.RLock()
 	if s.shut {
-		s.lock.RUnlock()
+		s.RUnlock()
 		return nil
 	}
-	s.lock.RUnlock()
+	s.RUnlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -63,18 +65,19 @@ func (s *STREAM) Read(timeout time.Duration, ctx context.Context) (frame *FRAME)
 }
 
 func (s *STREAM) Write(flags int, data []byte) (err error) {
-	s.lock.RLock()
+	// fmt.Printf("stream-write (%d)\n%s", len(data), hex.Dump(data))
+	s.RLock()
 	if s.shut {
-		s.lock.RUnlock()
+		s.RUnlock()
 		err = fmt.Errorf("shut")
 	} else {
-		s.lock.RUnlock()
-		s.domain.lock.RLock()
+		s.RUnlock()
+		s.domain.RLock()
 		if s.domain.connected {
-			s.domain.lock.RUnlock()
+			s.domain.RUnlock()
 			err = s.domain.agent.Write(uws.WEBSOCKET_OPCODE_BLOB, append(data, []byte{byte(flags), byte(s.id >> 16), byte(s.id >> 8), byte(s.id)}...))
 		} else {
-			s.domain.lock.RUnlock()
+			s.domain.RUnlock()
 			err = fmt.Errorf("disconnected")
 		}
 	}
@@ -82,20 +85,24 @@ func (s *STREAM) Write(flags int, data []byte) (err error) {
 }
 
 func (s *STREAM) Status(code int) {
-	headers := fmt.Sprintf("HTTP/1.1 %d %s\r\nDate: %s\r\n\r\n", code, http.StatusText(code), time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"))
+	headers := fmt.Sprintf(
+		"HTTP/1.1 %d %s\r\nDate: %s\r\n\r\n",
+		code, http.StatusText(code),
+		time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"),
+	)
 	s.Write(FLAG_HEAD|FLAG_START|FLAG_END, []byte(headers))
 }
 
 func (s *STREAM) Shutdown(abort bool, remove bool) {
-	s.lock.RLock()
+	s.RLock()
 	if !s.shut {
-		s.lock.RUnlock()
+		s.RUnlock()
 		if abort {
 			s.Write(FLAG_ABRT, nil)
 		}
-		s.lock.Lock()
+		s.Lock()
 		s.shut = true
-		s.lock.Unlock()
+		s.Unlock()
 	flushed:
 		for {
 			select {
@@ -107,16 +114,16 @@ func (s *STREAM) Shutdown(abort bool, remove bool) {
 				break flushed
 			}
 		}
-		s.lock.Lock()
+		s.Lock()
 		close(s.queue)
-		s.lock.Unlock()
+		s.Unlock()
 		if remove {
-			s.domain.lock.Lock()
+			s.domain.Lock()
 			delete(s.domain.streams, s.id)
-			s.domain.lock.Unlock()
+			s.domain.Unlock()
 		}
 		Logger.Debug(map[string]interface{}{"mode": Mode, "event": "stream", "domain": s.domain.Name, "stream": s.id, "action": "shutdown"})
 	} else {
-		s.lock.RUnlock()
+		s.RUnlock()
 	}
 }

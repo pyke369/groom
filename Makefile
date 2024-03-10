@@ -49,6 +49,6 @@ portable: $(PROGNAME)-linux-x86_64 $(PROGNAME)-linux-aarch64 $(PROGNAME)-darwin-
 
 # run targets
 server: $(PROGNAME)
-	@./$(PROGNAME) conf/server.conf
+	@./$(PROGNAME) conf/_server.conf
 agent: $(PROGNAME)
-	@./$(PROGNAME) conf/agent.conf
+	@./$(PROGNAME) conf/_agent.conf

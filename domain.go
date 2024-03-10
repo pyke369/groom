@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/tls"
-	"fmt"
 	"math"
 	"math/rand"
 	"net/http"
@@ -50,17 +49,17 @@ type DOMAIN struct {
 	hash        string
 	seen        time.Time
 	modified    time.Time
-	lock        sync.RWMutex
-	active      bool
-	connecting  bool
-	connected   bool
-	agent       *uws.Socket
-	id          int
-	streams     map[int]*STREAM
-	targets     []*TARGET
+	sync.RWMutex
+	active     bool
+	connecting bool
+	connected  bool
+	agent      *uws.Socket
+	id         int
+	streams    map[int]*STREAM
+	targets    []*TARGET
 }
 type DOMAINS struct {
-	lock sync.RWMutex
+	sync.RWMutex
 	list map[string]*DOMAIN
 }
 
@@ -79,7 +78,7 @@ func (d *DOMAINS) Update() {
 			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || strings.Contains(name, "dpkg-") {
 				continue
 			}
-			d.lock.Lock()
+			d.Lock()
 			if domain := d.list[name]; domain == nil || (domain.modified.Sub(modified) < 0 && time.Since(modified) >= 5*time.Second) {
 				if dconfig, err := uconfig.New(filepath.Join(root, name)); err == nil {
 					hash := dconfig.Hash()
@@ -95,9 +94,9 @@ func (d *DOMAINS) Update() {
 					}
 					if domain.hash != hash {
 						domain.hash = hash
-						domain.lock.Lock()
+						domain.Lock()
 						domain.active = dconfig.GetBoolean(dconfig.Path(PROGNAME, "active"))
-						domain.lock.Unlock()
+						domain.Unlock()
 						domain.Secret = strings.TrimSpace(dconfig.GetString(dconfig.Path(PROGNAME, "secret")))
 						domain.Concurrency = int(dconfig.GetIntegerBounds(dconfig.Path(PROGNAME, "concurrency"), 20, 3, 1000))
 						domain.Size = int(dconfig.GetSizeBounds(dconfig.Path(PROGNAME, "body_size"), Config.GetSizeBounds(Config.Path(PROGNAME, "body_size"), 8<<20, 64<<10, 1<<30), 64<<10, 1<<30))
@@ -179,31 +178,31 @@ func (d *DOMAINS) Update() {
 								}
 							}
 
-							domain.lock.Lock()
+							domain.Lock()
 							domain.targets = targets
-							domain.lock.Unlock()
+							domain.Unlock()
 						}
 					}
 				} else {
-					Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": filepath.Join(root, name), "error": fmt.Sprintf("domain syntax error: %v", err)})
+					Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": filepath.Join(root, name), "error": "configuration syntax error: " + err.Error()})
 				}
 			}
 			if domain := d.list[name]; domain != nil {
 				domain.seen = time.Now()
 			}
-			d.lock.Unlock()
+			d.Unlock()
 		}
 	}
-	d.lock.RLock()
+	d.RLock()
 	for _, domain := range d.list {
 		if time.Since(domain.seen) >= 15*time.Second {
-			domain.lock.Lock()
+			domain.Lock()
 			domain.active = false
-			domain.lock.Unlock()
+			domain.Unlock()
 		}
-		domain.lock.RLock()
+		domain.RLock()
 		if domain.active {
-			domain.lock.RUnlock()
+			domain.RUnlock()
 			if Mode == "agent" {
 				domain.Connect(func(ws *uws.Socket, mode int, data []byte) bool {
 					length := len(data)
@@ -229,32 +228,32 @@ func (d *DOMAINS) Update() {
 				})
 			}
 		} else if domain.connected {
-			domain.lock.RUnlock()
+			domain.RUnlock()
 			domain.agent.Close(0)
 		} else {
-			domain.lock.RUnlock()
+			domain.RUnlock()
 		}
 	}
-	d.lock.RUnlock()
+	d.RUnlock()
 }
 
 func (d *DOMAINS) Get(name string) (domain *DOMAIN) {
-	d.lock.RLock()
+	d.RLock()
 	domain = d.list[name]
-	d.lock.RUnlock()
+	d.RUnlock()
 	return
 }
 
 func (d *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Request, handler func(*uws.Socket, int, []byte) bool) {
-	d.lock.Lock()
+	d.Lock()
 	if d.connecting || d.connected {
-		d.lock.Unlock()
+		d.Unlock()
 		response.WriteHeader(http.StatusNotFound)
 		Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": d.Name, "remote": request.RemoteAddr, "error": "agent already connected"})
 		return
 	}
 	d.connecting = true
-	d.lock.Unlock()
+	d.Unlock()
 	if handled, _ := uws.Handle(response, request, &uws.Config{
 		Protocols:    []string{PROGNAME},
 		NeedProtocol: true,
@@ -262,96 +261,96 @@ func (d *DOMAIN) HandleConnect(response http.ResponseWriter, request *http.Reque
 		ReadSize:     16 << 10,
 		OpenHandler: func(ws *uws.Socket) {
 			domain := ws.Context.(*DOMAIN)
-			domain.lock.Lock()
+			domain.Lock()
 			domain.Remote = request.RemoteAddr
 			domain.connecting = false
 			domain.connected = true
 			domain.agent = ws
-			domain.lock.Unlock()
+			domain.Unlock()
 			Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "connect"})
 		},
 		CloseHandler: func(ws *uws.Socket, code int) {
 			domain := ws.Context.(*DOMAIN)
-			domain.lock.Lock()
+			domain.Lock()
 			for id, stream := range domain.streams {
 				stream.Shutdown(false, false)
 				delete(domain.streams, id)
 			}
 			domain.connected = false
-			domain.lock.Unlock()
+			domain.Unlock()
 			Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "disconnect"})
 		},
 		MessageHandler: handler,
 		Context:        d,
 	}); !handled {
-		d.lock.Lock()
+		d.Lock()
 		d.connecting = false
-		d.lock.Unlock()
+		d.Unlock()
 		response.WriteHeader(http.StatusNotFound)
 		Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": d.Name, "remote": request.RemoteAddr, "error": "websocket upgrade failed"})
 	}
 }
 
 func (d *DOMAIN) Connect(handler func(*uws.Socket, int, []byte) bool) {
-	d.lock.Lock()
+	d.Lock()
 	if !d.connecting && !d.connected {
 		d.connecting = true
-		d.lock.Unlock()
-		if _, err := uws.Dial(fmt.Sprintf("wss://%s%s", d.Remote, d.Service), "", &uws.Config{
-			Headers:      map[string]string{"Authorization": fmt.Sprintf("Bearer %s", d.Secret)},
+		d.Unlock()
+		if _, err := uws.Dial("wss://"+d.Remote+d.Service, "", &uws.Config{
+			Headers:      map[string]string{"Authorization": "Bearer " + d.Secret},
 			TLSConfig:    &tls.Config{InsecureSkipVerify: d.Insecure},
 			Protocols:    []string{PROGNAME},
 			FragmentSize: 64 << 10,
 			ReadSize:     16 << 10,
 			OpenHandler: func(ws *uws.Socket) {
 				domain := ws.Context.(*DOMAIN)
-				domain.lock.Lock()
+				domain.Lock()
 				domain.connecting = false
 				domain.connected = true
 				domain.agent = ws
-				domain.lock.Unlock()
+				domain.Unlock()
 				Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "connect"})
 			},
 			CloseHandler: func(ws *uws.Socket, code int) {
 				domain := ws.Context.(*DOMAIN)
-				domain.lock.Lock()
+				domain.Lock()
 				for id, stream := range domain.streams {
 					stream.Shutdown(false, false)
 					delete(domain.streams, id)
 				}
 				domain.connected = false
-				domain.lock.Unlock()
+				domain.Unlock()
 				Logger.Info(map[string]interface{}{"mode": Mode, "event": "domain", "domain": domain.Name, "remote": domain.Remote, "action": "disconnect"})
 			},
 			MessageHandler: handler,
 			Context:        d,
 		}); err != nil {
-			d.lock.Lock()
+			d.Lock()
 			d.connecting = false
-			d.lock.Unlock()
-			Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": d.Name, "remote": d.Remote, "error": fmt.Sprintf("%v", err)})
+			d.Unlock()
+			Logger.Warn(map[string]interface{}{"mode": Mode, "event": "error", "domain": d.Name, "remote": d.Remote, "error": err.Error()})
 		}
 	} else {
-		d.lock.Unlock()
+		d.Unlock()
 	}
 }
 
 func (d *DOMAIN) IsActive() (active bool) {
-	d.lock.RLock()
+	d.RLock()
 	active = d.active
-	d.lock.RUnlock()
+	d.RUnlock()
 	return
 }
 
 func (d *DOMAIN) IsConnected() (connected bool) {
-	d.lock.RLock()
+	d.RLock()
 	connected = d.active && d.connected
-	d.lock.RUnlock()
+	d.RUnlock()
 	return
 }
 
 func (d *DOMAIN) Stream(id int, create bool) (stream *STREAM) {
-	d.lock.Lock()
+	d.Lock()
 	if id >= 0 || (id < 0 && len(d.streams) < d.Concurrency) {
 		if id < 0 {
 			for {
@@ -371,12 +370,12 @@ func (d *DOMAIN) Stream(id int, create bool) (stream *STREAM) {
 			}
 		}
 	}
-	d.lock.Unlock()
+	d.Unlock()
 	return
 }
 
 func (d *DOMAIN) Target(method, path string) (target, host string) {
-	d.lock.RLock()
+	d.RLock()
 	for _, value := range d.targets {
 		if (value.rmethod != nil && !value.rmethod.MatchString(method)) || (value.rpath != nil && !value.rpath.MatchString(path)) {
 			continue
@@ -391,12 +390,12 @@ func (d *DOMAIN) Target(method, path string) (target, host string) {
 				} else {
 					path = value.path
 				}
-				target = fmt.Sprintf("%s%s%s", value.protocol, host.host, path)
+				target = value.protocol + host.host + path
 				break
 			}
 		}
 		break
 	}
-	d.lock.RUnlock()
+	d.RUnlock()
 	return
 }

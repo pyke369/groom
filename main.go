@@ -16,7 +16,7 @@ import (
 
 const (
 	PROGNAME = "groom"
-	VERSION  = "1.3.0"
+	PROGVER  = "1.3.2"
 )
 
 var (
@@ -57,7 +57,7 @@ func main() {
 			}
 		}
 		if len(secret) < 8 || len(salt) < 8 {
-			fmt.Fprintf(os.Stderr, "provided secret and/or salt are too short - aborting\n")
+			fmt.Fprintf(os.Stderr, "provided secret and/or salt are too short\n")
 			os.Exit(1)
 		}
 		fmt.Printf("%s", acl.Crypt512(secret, salt, 0))
@@ -69,13 +69,13 @@ func main() {
 	}
 
 	if Config, err = uconfig.New(os.Args[1]); err != nil {
-		fmt.Fprintf(os.Stderr, "configuration syntax error: %v - aborting\n", err)
+		fmt.Fprintf(os.Stderr, "configuration syntax error: %v\n", err)
 		os.Exit(2)
 	}
 	AccessLogger = ulog.New(Config.GetString(Config.Path(PROGNAME, "log", "access")))
 	Mode = Config.GetString(Config.Path(PROGNAME, "mode"), "agent")
 	Logger = ulog.New(Config.GetString(Config.Path(PROGNAME, "log", "system"), "console(output=stdout)"))
-	Logger.Info(map[string]interface{}{"mode": Mode, "event": "start", "config": os.Args[1], "pid": os.Getpid(), "version": VERSION})
+	Logger.Info(map[string]interface{}{"mode": Mode, "event": "start", "config": os.Args[1], "pid": os.Getpid(), "version": PROGVER})
 
 	switch Mode {
 	case "server":
@@ -83,7 +83,7 @@ func main() {
 	case "agent":
 		go AgentRun()
 	default:
-		fmt.Fprintf(os.Stderr, "neither in server nor agent running mode - aborting\n")
+		fmt.Fprintf(os.Stderr, "neither in server nor agent mode\n")
 		os.Exit(3)
 	}
 
@@ -95,9 +95,9 @@ func main() {
 			Config.Load(os.Args[1])
 			AccessLogger.Load(Config.GetString(Config.Path(PROGNAME, "log", "access")))
 			Logger.Load(Config.GetString(Config.Path(PROGNAME, "log", "system"), "console(output=stdout)"))
-			Logger.Info(map[string]interface{}{"mode": Mode, "event": "reload", "config": os.Args[1], "pid": os.Getpid(), "version": VERSION})
+			Logger.Info(map[string]interface{}{"mode": Mode, "event": "reload", "config": os.Args[1], "pid": os.Getpid(), "version": PROGVER})
 		} else {
-			Logger.Info(map[string]interface{}{"mode": Mode, "event": "reload", "config": os.Args[1], "error": fmt.Sprintf("%v", err)})
+			Logger.Info(map[string]interface{}{"mode": Mode, "event": "reload", "config": os.Args[1], "error": err.Error()})
 		}
 	}
 }

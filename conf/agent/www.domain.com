@@ -1,16 +1,13 @@
-groom
-{
+groom {
     // active      = no
     // secret      = ""
     // concurrency = 20
     // remote      = "www.domain.com:443"
     // service     = "/.well-known/groom-agent"
     // insecure    = no
-    // targets
-    // {
+    // targets {
     //     active = [ default ]
-    //     default
-    //     {
+    //     default {
     //         method = ""
     //         path   = ""
     //         host   = "target"
